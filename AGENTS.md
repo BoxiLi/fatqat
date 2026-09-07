@@ -26,6 +26,6 @@ project communication.
   or validation merely to make a change pass.
 - If blocked, report the exact cause, the smallest safe alternative, and any
   public API or behavior impact.
-- Do not complete the AI tools disclosure or human-only confirmation in
+- Do not complete the human-only confirmation in
   `.github/PULL_REQUEST_TEMPLATE.md`, or perform public GitHub communication
   on the contributor's behalf.

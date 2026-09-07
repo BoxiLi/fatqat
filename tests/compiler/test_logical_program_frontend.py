@@ -272,14 +272,12 @@ def test_logical_program_runs_end_to_end_on_the_sc_simulator():
         couplings=((0, 1),),
         runtime="numpy",
     )
-    native = fq.compiler.compile_to_sc(_bell_program(), backend).output
-    program, layout = fq.compiler.to_sc_simulator_program(native)
+    compiled = fq.compiler.compile_to_sc(_bell_program(), backend)
 
     counts = (
         backend.run(
-            program,
+            compiled,
             shots=32,
-            resource_layout=layout,
             simulation_config={"seed": 3},
         )
         .result()

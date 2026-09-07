@@ -6,7 +6,13 @@ from collections.abc import Mapping
 
 from ..logical_program import LogicalProgram
 from ..simulator import SCQubitSimulator
-from .core import CompilationResult, CompileContext, Compiler, Pipeline
+from .core import (
+    CompilationResult,
+    CompileContext,
+    Compiler,
+    ExecutableCompilationResult,
+    Pipeline,
+)
 from .dialects.logical_gate import LogicalIR, verify_logical_ir
 from .dialects.na_gate import NAProgram, verify_na_program
 from .dialects.na_zoned import ZonedPlan, verify_zoned_plan
@@ -24,6 +30,7 @@ from .passes.na import normalize_na
 from .passes.na_zap import schedule_with_zap
 from .passes.sc import normalize_sc
 from .passes.sc_target import _lower_sc_to_rotation, lower_sc_to_native
+from .simulator_bridge import to_sc_simulator_program
 
 SC_PIPELINE = "qasm-to-sc"
 LOGICAL_SC_PIPELINE = "logical-to-sc"
@@ -103,6 +110,18 @@ def _qasm_source(source: str | QasmSource, filename: str | None) -> QasmSource:
     raise TypeError("source must be OpenQASM text or QasmSource")
 
 
+def _package_sc_result(result: CompilationResult) -> CompilationResult:
+    if type(result.output) not in (SCNativeProgram, _RotationNativeProgram):
+        return result
+    program, layout = to_sc_simulator_program(result.output)
+    return ExecutableCompilationResult(
+        output=result.output,
+        route=result.route,
+        program=program,
+        resource_layout=layout,
+    )
+
+
 def compile_qasm_to_sc(
     source: str | QasmSource,
     backend: SCQubitSimulator,
@@ -113,11 +132,13 @@ def compile_qasm_to_sc(
 ) -> CompilationResult:
     """Compile static numeric OpenQASM to canonical SC native IR."""
 
-    return create_sc_pipeline().compile(
-        _qasm_source(source, filename),
-        pipeline=SC_PIPELINE,
-        emit=emit,
-        context=CompileContext(target=backend, options={"seed": seed}),
+    return _package_sc_result(
+        create_sc_pipeline().compile(
+            _qasm_source(source, filename),
+            pipeline=SC_PIPELINE,
+            emit=emit,
+            context=CompileContext(target=backend, options={"seed": seed}),
+        )
     )
 
 
@@ -130,11 +151,13 @@ def compile_to_sc(
 ) -> CompilationResult:
     """Compile an editable logical program to canonical SC native IR."""
 
-    return create_sc_pipeline().compile(
-        source,
-        pipeline=LOGICAL_SC_PIPELINE,
-        emit=emit,
-        context=CompileContext(target=backend, options={"seed": seed}),
+    return _package_sc_result(
+        create_sc_pipeline().compile(
+            source,
+            pipeline=LOGICAL_SC_PIPELINE,
+            emit=emit,
+            context=CompileContext(target=backend, options={"seed": seed}),
+        )
     )
 
 
@@ -148,11 +171,13 @@ def _compile_qasm_to_sc_rotation(
 ) -> CompilationResult:
     """Compile static numeric OpenQASM to private rotation-native IR."""
 
-    return _create_sc_rotation_pipeline().compile(
-        _qasm_source(source, filename),
-        pipeline=_SC_ROTATION_PIPELINE,
-        emit=emit,
-        context=CompileContext(target=backend, options={"seed": seed}),
+    return _package_sc_result(
+        _create_sc_rotation_pipeline().compile(
+            _qasm_source(source, filename),
+            pipeline=_SC_ROTATION_PIPELINE,
+            emit=emit,
+            context=CompileContext(target=backend, options={"seed": seed}),
+        )
     )
 
 

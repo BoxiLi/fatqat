@@ -53,12 +53,10 @@ def test_qasm_target_pipeline_preserves_public_order_through_routing(
     assert type(result.output) is program_type
     assert result.route == ("parse-qasm", "normalize-sc", pass_name)
 
-    program, resource_layout = to_sc_simulator_program(result.output)
     counts = (
         backend.run(
-            program,
+            result,
             shots=256,
-            resource_layout=resource_layout,
             simulation_config={"seed": 9},
         )
         .result()

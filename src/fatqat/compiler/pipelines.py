@@ -142,7 +142,7 @@ def compile_qasm_to_sc(
     filename: str | None = None,
     seed: int = 0,
 ) -> CompilationResult:
-    """Compile static numeric OpenQASM to canonical SC native IR."""
+    """Compile OpenQASM to an executable SC result at the final boundary."""
 
     return _package_sc_result(
         create_sc_pipeline().compile(
@@ -161,7 +161,7 @@ def compile_to_sc(
     emit: str = SCNativeProgram.IR_ID,
     seed: int = 0,
 ) -> CompilationResult:
-    """Compile an editable logical program to canonical SC native IR."""
+    """Compile a logical program to an executable SC result at the final boundary."""
 
     return _package_sc_result(
         create_sc_pipeline().compile(
@@ -200,7 +200,7 @@ def compile_qasm_to_na(
     emit: str = ZonedPlan.IR_ID,
     filename: str | None = None,
 ) -> CompilationResult:
-    """Compile static numeric OpenQASM to a ZAP-scheduled NA physical plan."""
+    """Compile OpenQASM to an executable ZAP-scheduled result at the final boundary."""
 
     return _package_na_result(
         create_na_pipeline().compile(
@@ -218,7 +218,7 @@ def compile_to_na(
     *,
     emit: str = ZonedPlan.IR_ID,
 ) -> CompilationResult:
-    """Compile an editable logical program to a ZAP-scheduled NA plan."""
+    """Compile a logical program to an executable NA result at the final boundary."""
 
     return _package_na_result(
         create_na_pipeline().compile(

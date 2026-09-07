@@ -276,7 +276,7 @@ Replace the explicit bridge call with `compiler_backend.run(compiled, ...)`, pre
 
 - [ ] **Step 4: Build strict documentation**
 
-Run: `make docs-strict`
+Run: `mkdocs build --strict`
 
 Expected: PASS without missing references or warnings.
 
@@ -318,7 +318,7 @@ Expected: all three packaging tests pass; request network permission only if dep
 
 - [ ] **Step 4: Rebuild strict documentation after all edits**
 
-Run: `make docs-strict`
+Run: `mkdocs build --strict`
 
 Expected: PASS.
 

@@ -26,20 +26,18 @@ the compiler's routing target; it may be any valid graph and does not need to
 be a grid.
 
 ```python
-backend = fq.simulator.SCQubitSimulator(
+sc_backend = fq.simulator.SCQubitSimulator(
     num_qubits=3,
     couplings=((0, 1), (1, 2)),
     runtime="numpy",
 )
 
-compiled = fq.compiler.compile_to_sc(circuit, backend, seed=7)
-native_program, layout = fq.compiler.to_sc_simulator_program(compiled.output)
+compiled = fq.compiler.compile_to_sc(circuit, sc_backend, seed=7)
 
 counts = (
-    backend.run(
-        native_program,
+    sc_backend.run(
+        compiled,
         shots=100,
-        resource_layout=layout,
         simulation_config={"seed": 7},
     )
     .result()
@@ -61,12 +59,22 @@ from fatqat.compiler.algorithms.zap import load_architecture
 
 architecture = load_architecture("default")
 compiled = fq.compiler.compile_to_na(circuit, architecture)
-plan = compiled.output
+na_backend = fq.simulator.AtomArraySimulator(runtime="numpy")
+
+counts = na_backend.run(compiled, shots=100).result().get_counts()
 ```
 
-The result is a zoned physical plan. Use
-[`to_na_simulator_program`][fatqat.compiler.to_na_simulator_program] when you
-want to execute that plan with the atom-array simulator.
+Both target compilers return an executable result at their default final
+boundary. Pass that result directly to the matching simulator. The final
+compiler IR remains available as `compiled.output`: an `SCNativeProgram` for
+SC or a `ZonedPlan` for NA. `compiled.route` records the passes that ran.
+
+An explicit intermediate `emit` returns an inspectable
+[`CompilationResult`][fatqat.compiler.CompilationResult] rather than an
+executable result. The low-level
+[`to_sc_simulator_program`][fatqat.compiler.to_sc_simulator_program] and
+[`to_na_simulator_program`][fatqat.compiler.to_na_simulator_program] functions
+remain available when advanced callers construct or modify final IR directly.
 
 ## Supported source behavior
 
@@ -92,4 +100,21 @@ OpenQASM remains an equal frontend through
 [`compile_qasm_to_sc`][fatqat.compiler.compile_qasm_to_sc] and
 [`compile_qasm_to_na`][fatqat.compiler.compile_qasm_to_na]. Python and QASM
 inputs converge at the same immutable logical IR, so all later lowering is
-shared.
+shared. Their default results use the same direct execution API:
+
+```python
+qasm_source = """
+OPENQASM 3.0;
+qubit[2] q;
+bit[2] c;
+h q[0];
+cx q[0], q[1];
+c = measure q;
+"""
+
+sc_compiled = fq.compiler.compile_qasm_to_sc(qasm_source, sc_backend)
+sc_result = sc_backend.run(sc_compiled).result()
+
+na_compiled = fq.compiler.compile_qasm_to_na(qasm_source, architecture)
+na_result = na_backend.run(na_compiled).result()
+```

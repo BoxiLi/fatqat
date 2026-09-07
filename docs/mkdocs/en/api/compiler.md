@@ -37,15 +37,28 @@ circuit = (
 
 ::: fatqat.compiler.compile_qasm_to_na
 
-## Translate compiler output for simulation
+## Results
+
+Final target helpers return an executable compilation result. It retains the
+compiler IR and pass route while carrying the simulator program and device
+layout required by `Simulator.run()`.
+
+::: fatqat.compiler.ExecutableCompilationResult
+
+::: fatqat.compiler.CompilationResult
+
+::: fatqat.ExecutableProgram
+
+## Low-level simulator translation
+
+These functions project manually created or modified final IR. Normal callers
+can pass the result of a final-target compile helper directly to the matching
+simulator.
 
 ::: fatqat.compiler.to_sc_simulator_program
 
 ::: fatqat.compiler.to_na_simulator_program
 
-## Results and errors
-
-::: fatqat.compiler.CompilationResult
+## Errors
 
 ::: fatqat.compiler.PassError
-

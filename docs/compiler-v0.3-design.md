@@ -19,9 +19,10 @@ program.cx(0, 1)
 program.measure_all()
 
 compiled = fq.compiler.compile_to_sc(program, backend)
+result = backend.run(compiled).result()
 ```
 
-这项改动只增加 compiler frontend，不改变已经存在的 SC、NA、routing、native lowering 和 simulator translation 架构。
+这项改动增加 compiler frontend，并把已有的 simulator translation 封装进公开 final-target 编译入口；SC、NA、routing 和 native lowering 的分层不变。
 
 ## 2. 当前开放仓库的命名基线
 
@@ -197,6 +198,27 @@ fq.compiler.compile_to_na(
 ) -> CompilationResult
 ```
 
+默认 final-target 边界实际返回 `ExecutableCompilationResult`。它继承
+`CompilationResult`，因此继续提供 `output` 和 `route`，同时携带 translation
+生成的 `program` 与 `resource_layout`：
+
+```python
+compiled = fq.compiler.compile_to_sc(program, backend)
+result = backend.run(compiled).result()
+
+compiled = fq.compiler.compile_to_na(program, architecture)
+result = atom_array_backend.run(compiled).result()
+```
+
+这一封装同样适用于两个 QASM 入口。显式要求 `LogicalIR`、`SCProgram` 或
+`NAProgram` 等中间 `emit` 时，返回值仍是普通 `CompilationResult`，不能直接
+执行。`Compiler.compile()` 和两个低层 simulator bridge 保持不变。
+
+模拟器只依赖位于 compiler 包之外的 `ExecutableProgram` 结构契约，从中取出
+普通 `fatqat.Program` 与固定 `ResourceLayout`；它不识别
+`SCNativeProgram`、`ZonedPlan` 或任何 compiler dialect。因而 bridge 的所有权
+仍在 compiler，公共调用只是不再要求用户手工执行 bridge。
+
 `fatqat.__init__` 公开 `LogicalProgram` 和 `compiler` 模块，使 `import fatqat as fq` 后的示例可以直接运行。
 
 已有入口全部保留：
@@ -246,7 +268,8 @@ v0.3 完成必须同时满足：
 4. operation ID 稳定、唯一；重复编译不改变源程序或前一次结果。
 5. integer operand 与 `RegisterRef` operand 的行为一致，非法索引和外部 register ref 在构造时失败。
 6. SC 和 NA 的现有成功、拒绝与测量行为不退化。
-7. `fatqat.Program` 的 simulator/emulator 公共行为完全不变。
+7. `fatqat.Program` 的 simulator/emulator 公共行为完全不变；默认 final-target
+   编译结果可直接传给 matrix simulator 的 `run()`。
 8. 公开模块中不出现厂商命名；rotation/iSWAP 路线保持私有。
 9. QASM compiler、SABRE、ZAP、simulator bridge 和 visualization 的现有测试继续通过。
 10. 新增端到端测试覆盖 Python frontend 到 SC simulator，以及 Python frontend 到 NA simulator 的最小线路。
@@ -259,7 +282,7 @@ v0.3 完成必须同时满足：
 - 不实现 symbolic parameter 在多层 IR 中的保留与延迟绑定。
 - 不增加 pulse-level compiler、noise/calibration-aware routing 或 Duostra。
 - 不引入新的 logical/SC/NA qubit 身份类。
-- 不让 compiler IR 直接成为 simulator 可执行对象。
+- 不让 compiler IR 本身成为 simulator 可执行对象；可执行的是保留 IR 的结果封装。
 
 这些边界保证 v0.3 只改善用户构造和编译入口，不借机扩张 compiler 核心。
 

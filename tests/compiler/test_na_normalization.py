@@ -7,8 +7,8 @@ import fatqat as fq
 from fatqat.compiler import CompileContext, UnsupportedFeatureError
 from fatqat.compiler.dialects import (
     LogicalGate,
+    LogicalIR,
     LogicalMeasure,
-    LogicalProgram,
     NAGate,
     NAMeasure,
 )
@@ -218,10 +218,10 @@ def test_normalize_na_preserves_terminal_measurements_and_their_refs():
 def test_normalize_na_rejects_reset_and_nonterminal_measurement():
     atom = fq.QuantumRegister(1, name="atom")[0]
     bit = fq.ClassicalRegister(1, name="bit")[0]
-    reset = LogicalProgram(
+    reset = LogicalIR(
         (atom,), (), (LogicalGate("logical.0", fq.operations.Reset, (atom,)),)
     )
-    dynamic = LogicalProgram(
+    dynamic = LogicalIR(
         (atom,),
         (bit,),
         (

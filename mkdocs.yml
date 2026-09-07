@@ -138,6 +138,7 @@ nav:
       - Start with one program:
           - Quickstart: guide/quickstart.md
           - Programs and registers: guide/program.md
+          - Compile a logical circuit: guide/compiler.md
           - Execution models: guide/execution-models.md
       - Study algorithm behavior:
           - Simulation: guide/simulation.md
@@ -158,6 +159,7 @@ nav:
       - api/index.md
       - Build programs:
           - Program: api/program.md
+          - Compiler: api/compiler.md
           - Registers: api/registers.md
           - Operations:
               - api/operations.md

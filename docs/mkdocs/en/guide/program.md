@@ -8,6 +8,11 @@ parameters, qubits and qudits, and direct physical controls. It records the
 logical system and its instructions in execution order without choosing how a
 backend will execute them.
 
+If you want the compiler to map and route a static gate circuit before it is
+run, use [`LogicalProgram`][fatqat.LogicalProgram] and the
+[compiler workflow](compiler.md). `Program` remains the execution and
+direct-control interface; users do not manually convert between the two.
+
 Start with a familiar qubit circuit, then add registers, feedforward,
 parameters, mixed local dimensions, drawing, and direct controls without
 changing the authoring pattern.

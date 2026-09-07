@@ -14,6 +14,7 @@ from . import simulator
 from . import visualization
 from .estimator import Estimator
 from .job import Job
+from .logical_program import LogicalProgram
 from .noise import NoiseModel
 from .observable import Observable
 from .operations import Measurement
@@ -31,6 +32,21 @@ from .resource_layout import DeviceOperand, ResourceLayout
 from .result import Result
 
 __version__ = "0.1.0a1"
+
+
+def __getattr__(name: str):
+    if name == "compiler":
+        from importlib import import_module
+
+        module = import_module(".compiler", __name__)
+        globals()[name] = module
+        return module
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | {"compiler"})
+
 
 __all__ = [
     "operations",
@@ -55,5 +71,7 @@ __all__ = [
     "ResourceLayout",
     "DeviceOperand",
     "Job",
+    "LogicalProgram",
+    "compiler",
     "Result",
 ]

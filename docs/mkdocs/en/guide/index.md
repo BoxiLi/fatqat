@@ -1,9 +1,10 @@
 # User guide
 
-Choose the level of detail that answers your question. Every path starts from
-the same backend-independent [`Program`][fatqat.Program], so moving from an
-algorithm study to a hardware or physics study does not require a second
-authoring model.
+Choose the level of detail that answers your question. Direct simulation and
+physics workflows start from the same backend-independent
+[`Program`][fatqat.Program]. When mapping and routing are part of the question,
+start from the compiler's concise
+[`LogicalProgram`][fatqat.LogicalProgram] instead.
 
 <div class="grid cards fatqat-guide-paths" markdown>
 
@@ -48,6 +49,9 @@ authoring model.
 
 New to FatQat? [Build and run a Bell program](quickstart.md). It takes about
 ten minutes and ends with a circuit drawing and a counts plot.
+
+To compile an editable gate circuit for a superconducting or neutral-atom
+target, continue with [Compile a logical circuit](compiler.md).
 
 When you are ready to go beyond the first circuit, [write a richer
 Program](program.md). That chapter introduces named registers, classical

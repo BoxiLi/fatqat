@@ -4,7 +4,7 @@ from fatqat.compiler import CompilationResult, PipelineNotFoundError, SC_PIPELIN
 from fatqat.compiler.core import CompileContext
 from fatqat.compiler.pipelines import compile_qasm_to_sc, create_sc_pipeline
 from fatqat.compiler.dialects import (
-    LogicalProgram,
+    LogicalIR,
     QasmSource,
     SCNativeProgram,
     SCProgram,
@@ -33,10 +33,10 @@ def test_emit_stops_qasm_to_sc_pipeline_at_logical_boundary():
     result = compile_qasm_to_sc(
         _BELL_QASM,
         SCQubitSimulator(),
-        emit=LogicalProgram.IR_ID,
+        emit=LogicalIR.IR_ID,
     )
 
-    assert isinstance(result.output, LogicalProgram)
+    assert isinstance(result.output, LogicalIR)
     assert result.route == ("parse-qasm",)
 
 

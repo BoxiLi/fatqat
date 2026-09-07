@@ -9,7 +9,7 @@ from ...operations.fixed_gates import CZGate, SwapGate
 from ...operations.parametric_gates import Phase, RX, RY, RZ
 from ...registers import RegisterRef
 from ..core import CompileContext
-from ..dialects.logical_gate import LogicalGate, LogicalMeasure, LogicalProgram
+from ..dialects.logical_gate import LogicalGate, LogicalIR, LogicalMeasure
 from ..dialects.na_gate import NAGate, NAMeasure, NAProgram
 from ..errors import UnsupportedFeatureError
 
@@ -55,7 +55,7 @@ class _NABuilder:
         return NAProgram(self.atoms, self.clbits, tuple(self._instructions))
 
 
-def normalize_na_program(source: LogicalProgram) -> NAProgram:
+def normalize_na_program(source: LogicalIR) -> NAProgram:
     """Lower numeric, static logical gates into the neutral-atom gate set."""
 
     builder = _NABuilder(source.qubits, source.clbits)
@@ -149,10 +149,10 @@ def _add_cx(
 
 class NormalizeNaPass:
     name = "normalize-na"
-    source_type = LogicalProgram
+    source_type = LogicalIR
     target_type = NAProgram
 
-    def run(self, source: LogicalProgram, context: CompileContext) -> NAProgram:
+    def run(self, source: LogicalIR, context: CompileContext) -> NAProgram:
         del context
         return normalize_na_program(source)
 

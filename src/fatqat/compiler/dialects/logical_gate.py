@@ -30,7 +30,7 @@ LogicalInstruction: TypeAlias = LogicalGate | LogicalMeasure
 
 
 @dataclass(frozen=True, slots=True)
-class LogicalProgram:
+class LogicalIR:
     IR_ID: ClassVar[str] = "gate.logical.v1"
 
     qubits: tuple[RegisterRef, ...]
@@ -38,9 +38,9 @@ class LogicalProgram:
     instructions: tuple[LogicalInstruction, ...]
 
 
-def verify_logical_program(program: object) -> None:
-    if type(program) is not LogicalProgram:
-        raise ValidationError("expected LogicalProgram")
+def verify_logical_ir(program: object) -> None:
+    if type(program) is not LogicalIR:
+        raise ValidationError("expected LogicalIR")
     _verify_refs(program.qubits, QuantumRegister, "qubit")
     _verify_refs(program.clbits, ClassicalRegister, "clbit")
 

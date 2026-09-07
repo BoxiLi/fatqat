@@ -8,10 +8,10 @@ from fatqat.compiler import (
 )
 from fatqat.compiler.dialects import (
     LogicalGate,
+    LogicalIR,
     LogicalMeasure,
-    LogicalProgram,
     QasmSource,
-    verify_logical_program,
+    verify_logical_ir,
 )
 from fatqat.compiler.passes import parse_qasm, snapshot_program
 
@@ -91,7 +91,7 @@ def test_parse_qasm_pass_produces_a_valid_logical_program():
 
     logical = parse_qasm.run(source, CompileContext())
 
-    assert isinstance(logical, LogicalProgram)
+    assert isinstance(logical, LogicalIR)
     assert tuple(item.operation_id for item in logical.instructions) == (
         "logical.0",
         "logical.1",
@@ -122,11 +122,11 @@ def test_snapshot_preserves_anonymous_registers_and_dimension():
 
 def test_logical_validator_checks_operation_arity():
     q0 = fq.QuantumRegister(1, name="q")[0]
-    program = LogicalProgram(
+    program = LogicalIR(
         qubits=(q0,),
         clbits=(),
         instructions=(LogicalGate("logical.0", fq.operations.CZ, (q0,)),),
     )
 
     with pytest.raises(ValidationError, match="expects 2 operand"):
-        verify_logical_program(program)
+        verify_logical_ir(program)

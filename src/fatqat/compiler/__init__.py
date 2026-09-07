@@ -17,8 +17,12 @@ from .errors import (
 )
 from .ir import IRDefinition, IRProgram, IRRegistry
 from .pipelines import (
+    LOGICAL_NA_PIPELINE,
+    LOGICAL_SC_PIPELINE,
     NA_PIPELINE,
     SC_PIPELINE,
+    compile_to_na,
+    compile_to_sc,
     compile_qasm_to_na,
     compile_qasm_to_sc,
     create_na_pipeline,
@@ -44,6 +48,10 @@ __all__ = [
     "IRRegistry",
     "NA_PIPELINE",
     "SC_PIPELINE",
+    "LOGICAL_NA_PIPELINE",
+    "LOGICAL_SC_PIPELINE",
+    "compile_to_na",
+    "compile_to_sc",
     "compile_qasm_to_na",
     "compile_qasm_to_sc",
     "create_na_pipeline",

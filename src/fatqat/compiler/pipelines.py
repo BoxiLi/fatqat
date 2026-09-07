@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ..logical_program import LogicalProgram
 from ..simulator import SCQubitSimulator
 from .core import CompilationResult, CompileContext, Compiler, Pipeline
-from .dialects.logical_gate import LogicalProgram, verify_logical_program
+from .dialects.logical_gate import LogicalIR, verify_logical_ir
 from .dialects.na_gate import NAProgram, verify_na_program
 from .dialects.na_zoned import ZonedPlan, verify_zoned_plan
 from .dialects.qasm import QasmSource, verify_qasm_source
@@ -17,27 +18,42 @@ from .dialects.sc_native import (
     _verify_rotation_native_program,
     verify_sc_native_program,
 )
-from .passes.qasm import parse_qasm
+from .errors import ValidationError
+from .passes.qasm import freeze_logical, parse_qasm
 from .passes.na import normalize_na
 from .passes.na_zap import schedule_with_zap
 from .passes.sc import normalize_sc
 from .passes.sc_target import _lower_sc_to_rotation, lower_sc_to_native
 
 SC_PIPELINE = "qasm-to-sc"
+LOGICAL_SC_PIPELINE = "logical-to-sc"
 _SC_ROTATION_PIPELINE = "qasm-to-sc-rotation"
 NA_PIPELINE = "qasm-to-na-zap"
+LOGICAL_NA_PIPELINE = "logical-to-na"
+
+
+def _verify_logical_source(program: object) -> None:
+    if type(program) is not LogicalProgram:
+        raise ValidationError("expected LogicalProgram")
 
 
 def create_sc_pipeline() -> Compiler:
-    """Create the QASM-to-native superconducting compiler."""
+    """Create the QASM and Python-frontend superconducting compiler."""
 
     compiler = Compiler()
     compiler.register_ir(QasmSource, verify_qasm_source)
-    compiler.register_ir(LogicalProgram, verify_logical_program)
+    compiler.register_ir(LogicalProgram, _verify_logical_source)
+    compiler.register_ir(LogicalIR, verify_logical_ir)
     compiler.register_ir(SCProgram, verify_sc_program)
     compiler.register_ir(SCNativeProgram, verify_sc_native_program)
     compiler.register_pipeline(
         Pipeline(SC_PIPELINE, (parse_qasm, normalize_sc, lower_sc_to_native))
+    )
+    compiler.register_pipeline(
+        Pipeline(
+            LOGICAL_SC_PIPELINE,
+            (freeze_logical, normalize_sc, lower_sc_to_native),
+        )
     )
     return compiler
 
@@ -57,15 +73,22 @@ def _create_sc_rotation_pipeline() -> Compiler:
 
 
 def create_na_pipeline() -> Compiler:
-    """Create the explicit QASM-to-neutral-atom ZAP scheduling pipeline."""
+    """Create the QASM and Python-frontend neutral-atom compiler."""
 
     compiler = Compiler()
     compiler.register_ir(QasmSource, verify_qasm_source)
-    compiler.register_ir(LogicalProgram, verify_logical_program)
+    compiler.register_ir(LogicalProgram, _verify_logical_source)
+    compiler.register_ir(LogicalIR, verify_logical_ir)
     compiler.register_ir(NAProgram, verify_na_program)
     compiler.register_ir(ZonedPlan, verify_zoned_plan)
     compiler.register_pipeline(
         Pipeline(NA_PIPELINE, (parse_qasm, normalize_na, schedule_with_zap))
+    )
+    compiler.register_pipeline(
+        Pipeline(
+            LOGICAL_NA_PIPELINE,
+            (freeze_logical, normalize_na, schedule_with_zap),
+        )
     )
     return compiler
 
@@ -93,6 +116,23 @@ def compile_qasm_to_sc(
     return create_sc_pipeline().compile(
         _qasm_source(source, filename),
         pipeline=SC_PIPELINE,
+        emit=emit,
+        context=CompileContext(target=backend, options={"seed": seed}),
+    )
+
+
+def compile_to_sc(
+    source: LogicalProgram,
+    backend: SCQubitSimulator,
+    *,
+    emit: str = SCNativeProgram.IR_ID,
+    seed: int = 0,
+) -> CompilationResult:
+    """Compile an editable logical program to canonical SC native IR."""
+
+    return create_sc_pipeline().compile(
+        source,
+        pipeline=LOGICAL_SC_PIPELINE,
         emit=emit,
         context=CompileContext(target=backend, options={"seed": seed}),
     )
@@ -128,6 +168,22 @@ def compile_qasm_to_na(
     return create_na_pipeline().compile(
         _qasm_source(source, filename),
         pipeline=NA_PIPELINE,
+        emit=emit,
+        context=CompileContext(target=architecture),
+    )
+
+
+def compile_to_na(
+    source: LogicalProgram,
+    architecture: Mapping[str, object],
+    *,
+    emit: str = ZonedPlan.IR_ID,
+) -> CompilationResult:
+    """Compile an editable logical program to a ZAP-scheduled NA plan."""
+
+    return create_na_pipeline().compile(
+        source,
+        pipeline=LOGICAL_NA_PIPELINE,
         emit=emit,
         context=CompileContext(target=architecture),
     )

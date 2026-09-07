@@ -11,8 +11,8 @@ from ...registers import RegisterRef
 from ..core import CompileContext
 from ..dialects.logical_gate import (
     LogicalGate,
+    LogicalIR,
     LogicalMeasure,
-    LogicalProgram,
 )
 from ..dialects.sc_gate import (
     MEASURE,
@@ -141,7 +141,7 @@ class _SCBuilder:
         return SCProgram(self.qubits, self.clbits, tuple(nodes), wires)
 
 
-def normalize_sc_program(source: LogicalProgram) -> SCProgram:
+def normalize_sc_program(source: LogicalIR) -> SCProgram:
     """Lower numeric, static logical gates into the closed SC instruction set."""
 
     builder = _SCBuilder(source.qubits, source.clbits)
@@ -250,10 +250,10 @@ def _is_zero(theta: float) -> bool:
 
 class NormalizeScPass:
     name = "normalize-sc"
-    source_type = LogicalProgram
+    source_type = LogicalIR
     target_type = SCProgram
 
-    def run(self, source: LogicalProgram, context: CompileContext) -> SCProgram:
+    def run(self, source: LogicalIR, context: CompileContext) -> SCProgram:
         del context
         return normalize_sc_program(source)
 

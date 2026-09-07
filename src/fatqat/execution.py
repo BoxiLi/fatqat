@@ -15,9 +15,9 @@ class ExecutableProgram(Protocol):
     @property
     def program(self) -> Program:
         """Return the gate-level program to execute."""
-        ...
+        raise NotImplementedError
 
     @property
     def resource_layout(self) -> ResourceLayout:
         """Return the device mapping required by ``program``."""
-        ...
+        raise NotImplementedError

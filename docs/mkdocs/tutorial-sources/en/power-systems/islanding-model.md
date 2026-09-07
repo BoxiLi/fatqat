@@ -73,13 +73,10 @@ make can still be one the grid cannot survive. Four requirements matter:
   all.
 
 The identification of coherent groups is a separate problem with its own
-literature — see You, Vittal, and Wang, "Slow coherency-based islanding",
-*IEEE Transactions on Power Systems* **19**(1), 483–491 (2004). The search for
-a splitting strategy that respects them is the problem modeled here; Sun,
-Zheng, and Lu, "Splitting strategies for islanding operation of large-scale
-power systems using OBDD-based methods", *IEEE Transactions on Power Systems*
-**18**(2), 912–923 (2003) is a good entry point to the classical approaches.
-This tutorial takes the coherent groups as given data and asks for the split.
+literature [1]. The search for a splitting strategy that respects them is the
+problem modeled here, and [2] is a good entry point to the classical
+approaches. This tutorial takes the coherent groups as given data and asks for
+the split.
 
 ## Where this tutorial stops
 
@@ -94,11 +91,13 @@ are covered in [Solve a QUBO with QAOA](qubo-qaoa.md).
 
 ## The networks
 
-Five IEEE test systems are used below. Two are carried in full — the WSCC
-9-bus and the IEEE 14-bus — while the larger three appear only in the qubit
-accounting at the end. Bus labels are zero-based, so bus 0 is the system's bus
-1. Line weights are the steady-state power flows of the reference case, which
-is what makes the cut weight the power interrupted by the split.
+Two systems are carried in full here, the WSCC 9-bus and the IEEE 14-bus. Three
+larger ones appear in the qubit accounting of
+[Split a power grid into islands with QAOA](islanding-qaoa.md), which is where
+the width of the model starts to matter. Bus labels are zero-based, so bus 0 is
+the system's bus 1. Line weights are the steady-state power flows of the
+reference case, which is what makes the cut weight the power interrupted by the
+split.
 
 The coherency groups are the interesting part of the data. On the 14-bus
 system, generators 0, 1, and 2 swing together and generators 5 and 7 swing
@@ -453,7 +452,8 @@ as a quadratic penalty needs auxiliary variables and a great many terms, which
 buys width and depth on a device that has neither to spare. Checking it after
 decoding costs nothing. The consequence is that minimizing the QUBO is not the
 same as solving the problem, and the gap has to be closed somewhere else. That
-is the job of the postprocessing further down.
+is the job of the postprocessing in
+[Split a power grid into islands with QAOA](islanding-qaoa.md).
 
 ```python
 def spring_layout(nodes, edges, seed=3, steps=400):
@@ -622,29 +622,12 @@ back.
 
 ## References
 
-- H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding",
-  *IEEE Transactions on Power Systems* **19**(1), 483–491 (2004).
-  How coherent generator groups are identified; this tutorial takes them as
-  given data.
-- K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding operation
-  of large-scale power systems using OBDD-based methods", *IEEE Transactions on
-  Power Systems* **18**(2), 912–923 (2003). A classical approach to the same
-  search, evaluated on the same IEEE test systems.
-- A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
-  **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings,
-  and the reference for writing a requirement as a quadratic penalty.
-- Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-  "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
-  Physics-Constrained Power System Islanding",
-  [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
-  islanding with coherency-informed reduction and structured post-processing.
-- Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-  "PACE-QAOA: Physics-Constrained Quantum Optimization for Qubit-Efficient
-  Power System Islanding",
-  [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026). Compact
-  encodings and Lagrangian constraint handling for qubit-efficient islanding.
-- Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-  "SPLIT-Q: A Scalable Sequential Quantum Computing Framework for Coherent
-  Controlled Islanding",
-  [arXiv:2608.12711](https://arxiv.org/abs/2608.12711) (2026). Sequential
-  regional QUBOs that keep circuit width independent of network size.
+1. H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding", *IEEE
+   Transactions on Power Systems* **19**(1), 483–491 (2004). How coherent
+   generator groups are identified; this tutorial takes them as given data.
+2. K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding
+   operation of large-scale power systems using OBDD-based methods", *IEEE
+   Transactions on Power Systems* **18**(2), 912–923 (2003). A classical
+   approach to the same search, evaluated on the same IEEE test systems.
+3. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
+   **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.

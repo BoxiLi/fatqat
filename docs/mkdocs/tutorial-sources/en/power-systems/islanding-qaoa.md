@@ -380,12 +380,11 @@ large shot budget, and most of what it collected would be unusable.
 ## Postprocessing: pVSQA Method 1
 
 The fix is to stop treating a measurement as an answer and start treating it as
-a *starting point*. Shirai and Togawa's postprocessing variationally scheduled
-quantum algorithm (pVSQA, IEEE Transactions on Quantum Engineering 5, 3100415,
-2024) walks each measured bitstring downhill to the nearest feasible
-assignment, so every shot yields a usable split.
+a *starting point*. The postprocessing variationally scheduled quantum
+algorithm (pVSQA) [1] walks each measured bitstring downhill to the nearest
+feasible assignment, so every shot yields a usable split.
 
-Method 1 is the two-stage form. The first stage is the paper's Algorithm 1:
+Method 1 is the two-stage form. The first stage is that paper's Algorithm 1:
 repeatedly flip whichever single variable most decreases
 
 $$
@@ -757,7 +756,9 @@ Qubit count is what decides whether a network is reachable at all, and it
 follows directly from the encoding and the components in use. Three numbers
 matter per system: the one-hot width $n_\text{buses} \times k$, the binary
 width $n_\text{buses}$ when $k = 2$, and the width once the slack-carrying
-requirements are added.
+requirements are added. The two encodings and the reason they agree on the
+answer are developed in
+[Model controlled islanding as a QUBO](islanding-model.md).
 
 The slack-carrying components — "at least $M$ buses", "at least one generator",
 "at least one load" — are inequalities, and an inequality needs a binary slack
@@ -855,33 +856,18 @@ The parts most worth pushing on:
 
 ## References
 
-- H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding",
-  *IEEE Transactions on Power Systems* **19**(1), 483–491 (2004).
-  Where the coherent generator groups this model takes as input come from.
-- K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding operation
-  of large-scale power systems using OBDD-based methods", *IEEE Transactions on
-  Power Systems* **18**(2), 912–923 (2003). A classical approach to the same
-  search, on the same IEEE test systems.
-- K. Shirai and N. Togawa, "Postprocessing Variationally Scheduled Quantum
-  Algorithm for Constrained Combinatorial Optimization Problems", *IEEE
-  Transactions on Quantum Engineering* **5**, 3100415 (2024). The pVSQA
-  procedure implemented above.
-- E. Farhi, J. Goldstone, and S. Gutmann, "A Quantum Approximate Optimization
-  Algorithm", [arXiv:1411.4028](https://arxiv.org/abs/1411.4028) (2014).
-- A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
-  **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.
-- Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-  "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
-  Physics-Constrained Power System Islanding",
-  [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
-  islanding with structured post-processing of shallow-circuit samples.
-- Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-  "PACE-QAOA: Physics-Constrained Quantum Optimization for Qubit-Efficient
-  Power System Islanding",
-  [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026). Compact
-  encodings that reduce phase-separator cost on sparse grids.
-- Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-  "SPLIT-Q: A Scalable Sequential Quantum Computing Framework for Coherent
-  Controlled Islanding",
-  [arXiv:2608.12711](https://arxiv.org/abs/2608.12711) (2026). Qubit-bounded
-  sequential regional QAOA for larger networks.
+1. K. Shirai and N. Togawa, "Postprocessing Variationally Scheduled Quantum
+   Algorithm for Constrained Combinatorial Optimization Problems", *IEEE
+   Transactions on Quantum Engineering* **5**, 3100415 (2024). The pVSQA
+   procedure implemented above.
+2. E. Farhi, J. Goldstone, and S. Gutmann, "A Quantum Approximate Optimization
+   Algorithm", [arXiv:1411.4028](https://arxiv.org/abs/1411.4028) (2014).
+3. H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding", *IEEE
+   Transactions on Power Systems* **19**(1), 483–491 (2004). Where the coherent
+   generator groups this model takes as input come from.
+4. K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding
+   operation of large-scale power systems using OBDD-based methods", *IEEE
+   Transactions on Power Systems* **18**(2), 912–923 (2003). A classical
+   approach to the same search, on the same IEEE test systems.
+5. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
+   **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.

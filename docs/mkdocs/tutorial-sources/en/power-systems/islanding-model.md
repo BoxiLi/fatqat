@@ -73,8 +73,8 @@ make can still be one the grid cannot survive. Four requirements matter:
   all.
 
 The identification of coherent groups is a separate problem with its own
-literature [1]. The search for a splitting strategy that respects them is the
-problem modeled here, and [2] is a good entry point to the classical
+literature [2]. The search for a splitting strategy that respects them is the
+problem modeled here, and [3] is a good entry point to the classical
 approaches. This tutorial takes the coherent groups as given data and asks for
 the split.
 
@@ -85,6 +85,10 @@ whose minimum is the split — checked against exhaustive enumeration on two
 IEEE test systems, plus a clear picture of what the model does and does not
 capture. Running it on a quantum circuit is the subject of
 [Split a power grid into islands with QAOA](islanding-qaoa.md).
+
+The formulation developed here follows REGRID-QAOA [1], which introduces this
+coherency-informed model of controlled islanding together with the structured
+post-processing the companion tutorial uses.
 
 The mechanics of QUBOs in general, and of turning one into a FatQat program,
 are covered in [Solve a QUBO with QAOA](qubo-qaoa.md).
@@ -195,7 +199,7 @@ bus, whose value names the island directly, halves the qubit count *and*
 deletes the penalty, because no bitstring can violate a rule the encoding
 cannot express. That is the single largest lever available on a near-term
 device, and it costs nothing. Encodings that push the same idea further, and
-the reductions that go with them, are the subject of [4]-[6].
+the reductions that go with them, are the subject of [5] and [6].
 
 Both encodings are built below. The rest of the requirements are the same in
 each: they only differ in how "bus $i$ is in island $g$" is written down.
@@ -623,21 +627,21 @@ back.
 
 ## References
 
-1. H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding", *IEEE
+1. Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+   "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
+   Physics-Constrained Power System Islanding",
+   [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). The
+   coherency-informed formulation this tutorial develops.
+2. H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding", *IEEE
    Transactions on Power Systems* **19**(1), 483–491 (2004). How coherent
    generator groups are identified; this tutorial takes them as given data.
-2. K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding
+3. K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding
    operation of large-scale power systems using OBDD-based methods", *IEEE
    Transactions on Power Systems* **18**(2), 912–923 (2003). A classical
    approach to the same search, evaluated on the same IEEE test systems.
-3. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
+4. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
    **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings,
    and the reference for writing a requirement as a quadratic penalty.
-4. Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-   "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
-   Physics-Constrained Power System Islanding",
-   [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
-   islanding with coherency-informed reduction and structured post-processing.
 5. Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy, "PACE-QAOA:
    Physics-Constrained Quantum Optimization for Qubit-Efficient Power System
    Islanding", [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026).

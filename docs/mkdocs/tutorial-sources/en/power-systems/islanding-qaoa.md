@@ -24,6 +24,10 @@ fix is not a deeper circuit; it is to stop treating a measurement as an answer
 and start treating it as a starting point, which is what the postprocessing
 half of this tutorial does.
 
+The pipeline as a whole — the coherency-informed QUBO, sampling it with a
+shallow circuit, and repairing what comes back — follows REGRID-QAOA [1]. The
+repair itself is the pVSQA procedure of [2].
+
 The mechanics of mapping a QUBO onto gates — the substitution to spins, the
 phase separator, the mixer — are covered in
 [Solve a QUBO with QAOA](qubo-qaoa.md) and are reused here without
@@ -381,7 +385,7 @@ large shot budget, and most of what it collected would be unusable.
 
 The fix is to stop treating a measurement as an answer and start treating it as
 a *starting point*. The postprocessing variationally scheduled quantum
-algorithm (pVSQA) [1] walks each measured bitstring downhill to the nearest
+algorithm (pVSQA) [2] walks each measured bitstring downhill to the nearest
 feasible assignment, so every shot yields a usable split.
 
 Method 1 is the two-stage form. The first stage is that paper's Algorithm 1:
@@ -839,7 +843,7 @@ the optimum from any starting point, so the quantum sampler's contribution is
 unmeasurable. Making that contribution visible needs a network where the
 classical descent has somewhere to get stuck — and there, the width numbers
 above become the binding constraint rather than the runtime. Approaches aimed
-at exactly that constraint are surveyed in [6]-[8].
+at exactly that constraint are developed in [7] and [8].
 
 The parts most worth pushing on:
 
@@ -858,26 +862,26 @@ The parts most worth pushing on:
 
 ## References
 
-1. K. Shirai and N. Togawa, "Postprocessing Variationally Scheduled Quantum
+1. Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+   "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
+   Physics-Constrained Power System Islanding",
+   [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). The hybrid
+   pipeline this tutorial implements.
+2. K. Shirai and N. Togawa, "Postprocessing Variationally Scheduled Quantum
    Algorithm for Constrained Combinatorial Optimization Problems", *IEEE
    Transactions on Quantum Engineering* **5**, 3100415 (2024). The pVSQA
-   procedure implemented above.
-2. E. Farhi, J. Goldstone, and S. Gutmann, "A Quantum Approximate Optimization
+   procedure used for the repair.
+3. E. Farhi, J. Goldstone, and S. Gutmann, "A Quantum Approximate Optimization
    Algorithm", [arXiv:1411.4028](https://arxiv.org/abs/1411.4028) (2014).
-3. H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding", *IEEE
+4. H. You, V. Vittal, and X. Wang, "Slow coherency-based islanding", *IEEE
    Transactions on Power Systems* **19**(1), 483–491 (2004). Where the coherent
    generator groups this model takes as input come from.
-4. K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding
+5. K. Sun, D.-Z. Zheng, and Q. Lu, "Splitting strategies for islanding
    operation of large-scale power systems using OBDD-based methods", *IEEE
    Transactions on Power Systems* **18**(2), 912–923 (2003). A classical
    approach to the same search, on the same IEEE test systems.
-5. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
+6. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
    **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.
-6. Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
-   "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
-   Physics-Constrained Power System Islanding",
-   [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
-   islanding with structured post-processing of shallow-circuit samples.
 7. Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy, "PACE-QAOA:
    Physics-Constrained Quantum Optimization for Qubit-Efficient Power System
    Islanding", [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026).

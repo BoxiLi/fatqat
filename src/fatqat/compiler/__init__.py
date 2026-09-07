@@ -4,6 +4,7 @@ from .core import (
     CompilationResult,
     CompileContext,
     Compiler,
+    ExecutableCompilationResult,
     Pipeline,
     TranslationPass,
 )
@@ -33,6 +34,7 @@ from .visualization import create_na_animation, save_na_animation
 
 __all__ = [
     "CompilationResult",
+    "ExecutableCompilationResult",
     "CompileContext",
     "Compiler",
     "Pipeline",

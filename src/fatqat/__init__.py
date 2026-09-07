@@ -13,6 +13,7 @@ from . import operations
 from . import simulator
 from . import visualization
 from .estimator import Estimator
+from .execution import ExecutableProgram
 from .job import Job
 from .logical_program import LogicalProgram
 from .noise import NoiseModel
@@ -56,6 +57,7 @@ __all__ = [
     "errors",
     "noise",
     "Estimator",
+    "ExecutableProgram",
     "NoiseModel",
     "Observable",
     "Program",

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass
 from typing import ClassVar
 
 import pytest
@@ -7,12 +7,17 @@ from fatqat.compiler import (
     CompilationResult,
     Compiler,
     EmitNotFoundError,
+    ExecutableCompilationResult,
     IRRegistry,
     PassError,
     Pipeline,
     PipelineNotFoundError,
     ValidationError,
 )
+from fatqat.execution import ExecutableProgram
+from fatqat.program import Program
+from fatqat.registers import QuantumRegister
+from fatqat.resource_layout import ResourceLayout
 
 
 @dataclass(frozen=True)
@@ -110,6 +115,28 @@ def test_pipeline_runs_in_order_and_validates_boundaries():
     assert result == CompilationResult(
         Target(6), ("source-to-middle", "middle-to-target")
     )
+
+
+def test_executable_result_preserves_compilation_contract_and_execution_payload():
+    qubits = QuantumRegister(1)
+    program = Program([qubits])
+    layout = ResourceLayout({qubits[0]: 0})
+
+    result = ExecutableCompilationResult(
+        output="native-ir",
+        route=("lower",),
+        program=program,
+        resource_layout=layout,
+    )
+
+    assert isinstance(result, CompilationResult)
+    assert isinstance(result, ExecutableProgram)
+    assert result.output == "native-ir"
+    assert result.route == ("lower",)
+    assert result.program is program
+    assert result.resource_layout is layout
+    with pytest.raises(FrozenInstanceError):
+        result.program = Program([])
 
 
 def test_pipeline_validates_each_ir_boundary_once():

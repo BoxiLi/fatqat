@@ -291,17 +291,13 @@ def test_logical_program_runs_end_to_end_on_the_sc_simulator():
 def test_logical_program_runs_end_to_end_on_the_na_simulator():
     from fatqat.compiler.algorithms.zap import load_architecture
 
-    plan = fq.compiler.compile_to_na(
-        _bell_program(), load_architecture("default")
-    ).output
-    program, layout = fq.compiler.to_na_simulator_program(plan)
+    compiled = fq.compiler.compile_to_na(_bell_program(), load_architecture("default"))
     backend = fq.simulator.AtomArraySimulator(runtime="numpy")
 
     counts = (
         backend.run(
-            program,
+            compiled,
             shots=32,
-            resource_layout=layout,
             simulation_config={"seed": 3},
         )
         .result()

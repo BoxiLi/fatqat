@@ -14,7 +14,11 @@ import numpy as np
 import pytest
 
 import fatqat as fq
-from fatqat.compiler import compile_qasm_to_na, to_na_simulator_program
+from fatqat.compiler import (
+    ExecutableCompilationResult,
+    compile_qasm_to_na,
+    to_na_simulator_program,
+)
 from fatqat.compiler.algorithms.zap import load_architecture
 from fatqat.compiler.dialects import NAGate, NAMeasure, NAProgram
 from fatqat.compiler.dialects.na_zoned import (
@@ -181,6 +185,21 @@ def test_real_zap_pipeline_preserves_provenance_measurements_and_semantics(qasm)
         _statevector(projected, atom_array=True, resource_layout=layout),
         _statevector(_normalized_reference_program(normalized), atom_array=False),
     )
+
+
+def test_qasm_na_compilation_runs_directly_on_the_atom_array_simulator():
+    compiled = compile_qasm_to_na(_BELL_QASM, _default_architecture())
+
+    counts = (
+        fq.simulator.AtomArraySimulator(runtime="numpy")
+        .run(compiled, shots=32, simulation_config={"seed": 3})
+        .result()
+        .get_counts()
+    )
+
+    assert isinstance(compiled, ExecutableCompilationResult)
+    assert set(counts) <= {"00", "11"}
+    assert sum(counts.values()) == 32
 
 
 def _canonical_plan(plan: ZonedPlan) -> tuple[object, ...]:

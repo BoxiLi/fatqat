@@ -30,7 +30,7 @@ from .passes.na import normalize_na
 from .passes.na_zap import schedule_with_zap
 from .passes.sc import normalize_sc
 from .passes.sc_target import _lower_sc_to_rotation, lower_sc_to_native
-from .simulator_bridge import to_sc_simulator_program
+from .simulator_bridge import to_na_simulator_program, to_sc_simulator_program
 
 SC_PIPELINE = "qasm-to-sc"
 LOGICAL_SC_PIPELINE = "logical-to-sc"
@@ -122,6 +122,18 @@ def _package_sc_result(result: CompilationResult) -> CompilationResult:
     )
 
 
+def _package_na_result(result: CompilationResult) -> CompilationResult:
+    if type(result.output) is not ZonedPlan:
+        return result
+    program, layout = to_na_simulator_program(result.output)
+    return ExecutableCompilationResult(
+        output=result.output,
+        route=result.route,
+        program=program,
+        resource_layout=layout,
+    )
+
+
 def compile_qasm_to_sc(
     source: str | QasmSource,
     backend: SCQubitSimulator,
@@ -190,11 +202,13 @@ def compile_qasm_to_na(
 ) -> CompilationResult:
     """Compile static numeric OpenQASM to a ZAP-scheduled NA physical plan."""
 
-    return create_na_pipeline().compile(
-        _qasm_source(source, filename),
-        pipeline=NA_PIPELINE,
-        emit=emit,
-        context=CompileContext(target=architecture),
+    return _package_na_result(
+        create_na_pipeline().compile(
+            _qasm_source(source, filename),
+            pipeline=NA_PIPELINE,
+            emit=emit,
+            context=CompileContext(target=architecture),
+        )
     )
 
 
@@ -206,9 +220,11 @@ def compile_to_na(
 ) -> CompilationResult:
     """Compile an editable logical program to a ZAP-scheduled NA plan."""
 
-    return create_na_pipeline().compile(
-        source,
-        pipeline=LOGICAL_NA_PIPELINE,
-        emit=emit,
-        context=CompileContext(target=architecture),
+    return _package_na_result(
+        create_na_pipeline().compile(
+            source,
+            pipeline=LOGICAL_NA_PIPELINE,
+            emit=emit,
+            context=CompileContext(target=architecture),
+        )
     )

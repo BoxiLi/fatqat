@@ -838,13 +838,15 @@ about why. On networks small enough to simulate, the classical repair reaches
 the optimum from any starting point, so the quantum sampler's contribution is
 unmeasurable. Making that contribution visible needs a network where the
 classical descent has somewhere to get stuck — and there, the width numbers
-above become the binding constraint rather than the runtime.
+above become the binding constraint rather than the runtime. Approaches aimed
+at exactly that constraint are surveyed in [6]-[8].
 
 The parts most worth pushing on:
 
 - **Narrower encodings.** A base-$k$ assignment beats one-hot for more than two
   islands, and merging buses that will never separate shrinks the problem
-  before any encoding is chosen.
+  before any encoding is chosen [7]. Solving regional subproblems in sequence
+  keeps the circuit width independent of the network size altogether [8].
 - **Constraint-preserving mixers.** An XY mixer confines the state to the
   one-hot subspace, so amplitude is never spent on assignments the penalty
   would only have to reject.
@@ -871,3 +873,16 @@ The parts most worth pushing on:
    approach to the same search, on the same IEEE test systems.
 5. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
    **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.
+6. Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+   "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
+   Physics-Constrained Power System Islanding",
+   [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
+   islanding with structured post-processing of shallow-circuit samples.
+7. Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy, "PACE-QAOA:
+   Physics-Constrained Quantum Optimization for Qubit-Efficient Power System
+   Islanding", [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026).
+   Compact encodings that reduce phase-separator cost on sparse grids.
+8. Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy, "SPLIT-Q: A
+   Scalable Sequential Quantum Computing Framework for Coherent Controlled
+   Islanding", [arXiv:2608.12711](https://arxiv.org/abs/2608.12711) (2026).
+   Qubit-bounded sequential regional QAOA for larger networks.

@@ -194,7 +194,8 @@ y_{i,0}$: the second variable carries no information. Keeping one variable per
 bus, whose value names the island directly, halves the qubit count *and*
 deletes the penalty, because no bitstring can violate a rule the encoding
 cannot express. That is the single largest lever available on a near-term
-device, and it costs nothing.
+device, and it costs nothing. Encodings that push the same idea further, and
+the reductions that go with them, are the subject of [4]-[6].
 
 Both encodings are built below. The rest of the requirements are the same in
 each: they only differ in how "bus $i$ is in island $g$" is written down.
@@ -630,4 +631,20 @@ back.
    Transactions on Power Systems* **18**(2), 912–923 (2003). A classical
    approach to the same search, evaluated on the same IEEE test systems.
 3. A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
-   **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.
+   **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings,
+   and the reference for writing a requirement as a quadratic penalty.
+4. Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+   "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
+   Physics-Constrained Power System Islanding",
+   [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
+   islanding with coherency-informed reduction and structured post-processing.
+5. Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy, "PACE-QAOA:
+   Physics-Constrained Quantum Optimization for Qubit-Efficient Power System
+   Islanding", [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026).
+   Compact encodings and Lagrangian constraint handling for qubit-efficient
+   islanding.
+6. Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy, "SPLIT-Q: A
+   Scalable Sequential Quantum Computing Framework for Coherent Controlled
+   Islanding", [arXiv:2608.12711](https://arxiv.org/abs/2608.12711) (2026).
+   Sequential regional QUBOs that keep circuit width independent of network
+   size.

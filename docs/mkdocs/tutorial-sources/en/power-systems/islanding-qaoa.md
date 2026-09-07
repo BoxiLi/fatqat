@@ -870,3 +870,18 @@ The parts most worth pushing on:
   Algorithm", [arXiv:1411.4028](https://arxiv.org/abs/1411.4028) (2014).
 - A. Lucas, "Ising formulations of many NP problems", *Frontiers in Physics*
   **2**, 5 (2014). The standard catalogue of constraint-to-penalty mappings.
+- Y. Jiang, Y. Zhang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+  "REGRID-QAOA: A Resource-Efficient Hybrid QAOA Framework for
+  Physics-Constrained Power System Islanding",
+  [arXiv:2606.15083](https://arxiv.org/abs/2606.15083) (2026). Hybrid QAOA
+  islanding with structured post-processing of shallow-circuit samples.
+- Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+  "PACE-QAOA: Physics-Constrained Quantum Optimization for Qubit-Efficient
+  Power System Islanding",
+  [arXiv:2608.02789](https://arxiv.org/abs/2608.02789) (2026). Compact
+  encodings that reduce phase-separator cost on sparse grids.
+- Y. Jiang, Z. Liang, Q. Guan, Y. Li, and G. K. Venayagamoorthy,
+  "SPLIT-Q: A Scalable Sequential Quantum Computing Framework for Coherent
+  Controlled Islanding",
+  [arXiv:2608.12711](https://arxiv.org/abs/2608.12711) (2026). Qubit-bounded
+  sequential regional QAOA for larger networks.

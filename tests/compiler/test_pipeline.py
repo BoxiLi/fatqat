@@ -1,15 +1,21 @@
 import pytest
 
-from fatqat.compiler import CompilationResult, PipelineNotFoundError, SC_PIPELINE
+from fatqat.compiler import (
+    CompilationResult,
+    ExecutableCompilationResult,
+    PipelineNotFoundError,
+    SC_PIPELINE,
+)
 from fatqat.compiler.core import CompileContext
 from fatqat.compiler.pipelines import compile_qasm_to_sc, create_sc_pipeline
 from fatqat.compiler.dialects import (
-    LogicalProgram,
+    LogicalIR,
     QasmSource,
     SCNativeProgram,
     SCProgram,
 )
 from fatqat.simulator import SCQubitSimulator
+from fatqat.execution import ExecutableProgram
 
 _BELL_QASM = """
 OPENQASM 3.0;
@@ -24,7 +30,7 @@ c = measure q;
 def test_explicit_qasm_to_sc_pipeline_runs_the_canonical_route():
     result = compile_qasm_to_sc(_BELL_QASM, SCQubitSimulator())
 
-    assert isinstance(result, CompilationResult)
+    assert isinstance(result, ExecutableCompilationResult)
     assert type(result.output) is SCNativeProgram
     assert result.route == ("parse-qasm", "normalize-sc", "lower-sc-to-native")
 
@@ -33,10 +39,12 @@ def test_emit_stops_qasm_to_sc_pipeline_at_logical_boundary():
     result = compile_qasm_to_sc(
         _BELL_QASM,
         SCQubitSimulator(),
-        emit=LogicalProgram.IR_ID,
+        emit=LogicalIR.IR_ID,
     )
 
-    assert isinstance(result.output, LogicalProgram)
+    assert isinstance(result.output, LogicalIR)
+    assert type(result) is CompilationResult
+    assert not isinstance(result, ExecutableProgram)
     assert result.route == ("parse-qasm",)
 
 

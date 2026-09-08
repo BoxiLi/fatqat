@@ -9,7 +9,7 @@ from ...operations.fixed_gates import CZGate, SwapGate
 from ...operations.parametric_gates import Phase, RX, RY, RZ
 from ...registers import RegisterRef
 from ..core import CompileContext
-from ..dialects.logical_gate import LogicalGate, LogicalMeasure, LogicalProgram
+from ..dialects.logical_gate import LogicalGate, LogicalIR, LogicalMeasure
 from ..dialects.na_gate import NAGate, NAMeasure, NAProgram
 from ..errors import UnsupportedFeatureError
 
@@ -55,7 +55,7 @@ class _NABuilder:
         return NAProgram(self.atoms, self.clbits, tuple(self._instructions))
 
 
-def normalize_na_program(source: LogicalProgram) -> NAProgram:
+def normalize_na_program(source: LogicalIR) -> NAProgram:
     """Lower numeric, static logical gates into the neutral-atom gate set."""
 
     builder = _NABuilder(source.qubits, source.clbits)
@@ -117,6 +117,29 @@ def _lower_gate(builder: _NABuilder, instruction: LogicalGate) -> None:
     if operation is ops.Tdg:
         builder.add_gate(ops.RZ(-math.pi / 4), atoms, origin_id)
         return
+    if type(operation) is ops.U1:
+        builder.add_gate(ops.RZ(operation.lam), atoms, origin_id)
+        return
+    if type(operation) is ops.U2:
+        _add_u(
+            builder,
+            math.pi / 2,
+            operation.phi,
+            operation.lam,
+            atoms[0],
+            origin_id,
+        )
+        return
+    if type(operation) in (ops.U, ops.U3):
+        _add_u(
+            builder,
+            operation.theta,
+            operation.phi,
+            operation.lam,
+            atoms[0],
+            origin_id,
+        )
+        return
     if type(operation) is Phase:
         builder.add_gate(ops.RZ(operation.theta), atoms, origin_id)
         return
@@ -139,6 +162,19 @@ def _add_h(builder: _NABuilder, atom: RegisterRef, origin_id: str) -> None:
     builder.add_gate(ops.RY(math.pi / 2), (atom,), origin_id)
 
 
+def _add_u(
+    builder: _NABuilder,
+    theta: float,
+    phi: float,
+    lam: float,
+    atom: RegisterRef,
+    origin_id: str,
+) -> None:
+    builder.add_gate(ops.RZ(lam), (atom,), origin_id)
+    builder.add_gate(ops.RY(theta), (atom,), origin_id)
+    builder.add_gate(ops.RZ(phi), (atom,), origin_id)
+
+
 def _add_cx(
     builder: _NABuilder, control: RegisterRef, target: RegisterRef, origin_id: str
 ) -> None:
@@ -149,10 +185,10 @@ def _add_cx(
 
 class NormalizeNaPass:
     name = "normalize-na"
-    source_type = LogicalProgram
+    source_type = LogicalIR
     target_type = NAProgram
 
-    def run(self, source: LogicalProgram, context: CompileContext) -> NAProgram:
+    def run(self, source: LogicalIR, context: CompileContext) -> NAProgram:
         del context
         return normalize_na_program(source)
 

@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Generic, Mapping, Protocol, TypeVar
 
+from ..program import Program
+from ..resource_layout import ResourceLayout
 from .errors import (
     EmitNotFoundError,
     PassError,
@@ -78,6 +80,14 @@ class CompilationResult(Generic[TargetT]):
 
     output: TargetT
     route: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutableCompilationResult(CompilationResult[TargetT]):
+    """A compiler result carrying the simulator program and device layout."""
+
+    program: Program
+    resource_layout: ResourceLayout
 
 
 class Compiler:

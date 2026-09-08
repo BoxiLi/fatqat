@@ -5,7 +5,7 @@ import numpy as np
 
 import fatqat as fq
 import fatqat.operations as ops
-from fatqat.compiler import compile_qasm_to_sc, to_sc_simulator_program
+from fatqat.compiler import compile_qasm_to_sc
 
 from _home_grover_plot import draw_distribution
 from home_grover_program import FUSED_GATES, TARGET, TARGET_INDEX
@@ -19,6 +19,7 @@ EDGE_CZ_DEPOLARIZING_P = {
     (0, 1): 0.003,
     (1, 2): 0.003,
 }
+
 
 def build_sc_qasm():
     """Build equivalent QASM for the canonical SC compiler route."""
@@ -40,8 +41,8 @@ compiler_backend = fq.simulator.SCQubitSimulator(
     couplings=COUPLINGS,
     runtime="numpy",
 )
-native = compile_qasm_to_sc(SC_QASM, compiler_backend).output
-program, resource_layout = to_sc_simulator_program(native)
+compiled = compile_qasm_to_sc(SC_QASM, compiler_backend)
+resource_layout = compiled.resource_layout
 noise = fq.NoiseModel()
 
 
@@ -55,6 +56,7 @@ def coherence_channels(duration):
         fq.noise.PhaseDamping(p=phase_p),
     )
 
+
 for operation in (ops.X, ops.SX):
     damping, dephasing = coherence_channels(SX_DURATION_SECONDS)
     noise.add(damping, operation=operation)
@@ -65,9 +67,7 @@ for target_position in (0, 1):
     noise.add(damping, operation=ops.CZ, target_positions=(target_position,))
     noise.add(dephasing, operation=ops.CZ, target_positions=(target_position,))
 
-refs_by_site = {
-    resource_layout.device_label(ref): ref for ref in resource_layout.refs
-}
+refs_by_site = {resource_layout.device_label(ref): ref for ref in resource_layout.refs}
 # Add explicit depolarizing noise on top of the T1/T2 channels.
 for edge, depolarizing_p in EDGE_CZ_DEPOLARIZING_P.items():
     noise.add(
@@ -85,9 +85,8 @@ density_matrix = (
         noise=noise,
     )
     .run(
-        program,
+        compiled,
         shots=0,
-        resource_layout=resource_layout,
         result_config={"counts": False, "final_state": True},
     )
     .result()

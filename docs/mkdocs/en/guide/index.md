@@ -1,9 +1,10 @@
 # User guide
 
-Choose the level of detail that answers your question. Every path starts from
-the same backend-independent [`Program`][fatqat.Program], so moving from an
-algorithm study to a hardware or physics study does not require a second
-authoring model.
+Choose the level of detail that answers your question. Direct simulation and
+physics workflows start from the same backend-independent
+[`Program`][fatqat.Program]. When mapping and routing are part of the question,
+start from the compiler's concise
+[`LogicalProgram`][fatqat.LogicalProgram] instead.
 
 !!! tip "New to FatQat?"
 
@@ -46,6 +47,9 @@ authoring model.
 
 [Compare the execution levels](execution-models.md) if you are unsure which
 path contains the detail your study needs.
+
+To compile an editable gate circuit for a superconducting or neutral-atom
+target, continue with [Compile a logical circuit](compiler.md).
 
 ## Continue by task
 

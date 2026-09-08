@@ -1,6 +1,12 @@
 """Built-in compiler translation passes."""
 
-from .qasm import ParseQasmPass, parse_qasm, snapshot_program
+from .qasm import (
+    FreezeLogicalPass,
+    ParseQasmPass,
+    freeze_logical,
+    parse_qasm,
+    snapshot_program,
+)
 from .na import NormalizeNaPass, normalize_na, normalize_na_program
 from .na_zap import ScheduleNaWithZapPass, schedule_na_with_zap, schedule_with_zap
 from .sc import NormalizeScPass, normalize_sc, normalize_sc_program
@@ -23,6 +29,8 @@ __all__ = [
     "ParseQasmPass",
     "parse_qasm",
     "snapshot_program",
+    "FreezeLogicalPass",
+    "freeze_logical",
     "LowerScToNativePass",
     "lower_sc_to_native",
     "lower_sc_to_native_program",

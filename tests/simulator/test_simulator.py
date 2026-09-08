@@ -3,10 +3,12 @@
 import numpy as np
 import pytest
 
+from fatqat.compiler import CompilationResult, ExecutableCompilationResult
 from fatqat.simulator import Simulator
 from fatqat.errors import BackendValidationError
 import fatqat.operations as ops
 from fatqat.program import Program
+from fatqat.resource_layout import ResourceLayout
 
 
 def _bell(with_barriers: bool = False) -> Program:
@@ -68,6 +70,55 @@ def test_alias_selects_identical_behavior():
         .result()
     )
     assert c.get_counts() == d.get_counts()
+
+
+def test_run_accepts_an_executable_program_with_its_bundled_layout():
+    program = _bell()
+    qubits = program.quantum_registers[0]
+    layout = ResourceLayout({qubits[0]: 0, qubits[1]: 1})
+    executable = ExecutableCompilationResult(
+        output="native-ir",
+        route=("lower",),
+        program=program,
+        resource_layout=layout,
+    )
+    backend = Simulator()
+
+    actual = backend.run(
+        executable,
+        shots=32,
+        simulation_config={"seed": 7},
+    ).result()
+    expected = backend.run(
+        program,
+        shots=32,
+        resource_layout=layout,
+        simulation_config={"seed": 7},
+    ).result()
+
+    assert actual.get_counts() == expected.get_counts()
+
+
+def test_run_rejects_an_explicit_layout_for_an_executable_program():
+    program = Program(1)
+    qubit = program.quantum_registers[0][0]
+    layout = ResourceLayout({qubit: 0})
+    executable = ExecutableCompilationResult(
+        output="native-ir",
+        route=("lower",),
+        program=program,
+        resource_layout=layout,
+    )
+
+    with pytest.raises(ValueError, match="resource_layout"):
+        Simulator().run(executable, resource_layout=layout)
+
+
+def test_run_rejects_a_non_executable_compilation_result():
+    result = CompilationResult(output="intermediate-ir", route=("normalize",))
+
+    with pytest.raises(TypeError, match="Program or ExecutableProgram"):
+        Simulator().run(result)
 
 
 def test_method_selects_native_state_field():

@@ -11,8 +11,8 @@ from ...registers import RegisterRef
 from ..core import CompileContext
 from ..dialects.logical_gate import (
     LogicalGate,
+    LogicalIR,
     LogicalMeasure,
-    LogicalProgram,
 )
 from ..dialects.sc_gate import (
     MEASURE,
@@ -141,7 +141,7 @@ class _SCBuilder:
         return SCProgram(self.qubits, self.clbits, tuple(nodes), wires)
 
 
-def normalize_sc_program(source: LogicalProgram) -> SCProgram:
+def normalize_sc_program(source: LogicalIR) -> SCProgram:
     """Lower numeric, static logical gates into the closed SC instruction set."""
 
     builder = _SCBuilder(source.qubits, source.clbits)
@@ -215,9 +215,30 @@ def _lower_gate(builder: _SCBuilder, instruction: LogicalGate) -> None:
         builder.add(ops.RX(math.pi / 2), qubits, origins)
         return
     if type(operation) is RY:
-        builder.add(ops.RZ(-math.pi / 2), qubits, origins)
-        builder.add(ops.RX(operation.theta), qubits, origins)
-        builder.add(ops.RZ(math.pi / 2), qubits, origins)
+        _add_ry(builder, operation.theta, qubits[0], origins)
+        return
+    if type(operation) is ops.U1:
+        builder.add(ops.RZ(operation.lam), qubits, origins)
+        return
+    if type(operation) is ops.U2:
+        _add_u(
+            builder,
+            math.pi / 2,
+            operation.phi,
+            operation.lam,
+            qubits[0],
+            origins,
+        )
+        return
+    if type(operation) in (ops.U, ops.U3):
+        _add_u(
+            builder,
+            operation.theta,
+            operation.phi,
+            operation.lam,
+            qubits[0],
+            origins,
+        )
         return
     if type(operation) is Phase:
         builder.add(ops.RZ(operation.theta), qubits, origins)
@@ -239,6 +260,30 @@ def _add_h(builder: _SCBuilder, qubit: RegisterRef, origins: tuple[str, ...]) ->
     builder.add(ops.RZ(math.pi / 2), (qubit,), origins)
 
 
+def _add_ry(
+    builder: _SCBuilder,
+    theta: float,
+    qubit: RegisterRef,
+    origins: tuple[str, ...],
+) -> None:
+    builder.add(ops.RZ(-math.pi / 2), (qubit,), origins)
+    builder.add(ops.RX(theta), (qubit,), origins)
+    builder.add(ops.RZ(math.pi / 2), (qubit,), origins)
+
+
+def _add_u(
+    builder: _SCBuilder,
+    theta: float,
+    phi: float,
+    lam: float,
+    qubit: RegisterRef,
+    origins: tuple[str, ...],
+) -> None:
+    builder.add(ops.RZ(lam), (qubit,), origins)
+    _add_ry(builder, theta, qubit, origins)
+    builder.add(ops.RZ(phi), (qubit,), origins)
+
+
 def _normalize_angle(theta: float) -> float:
     value = math.remainder(float(theta), 2 * math.pi)
     return 0.0 if _is_zero(value) else value
@@ -250,10 +295,10 @@ def _is_zero(theta: float) -> bool:
 
 class NormalizeScPass:
     name = "normalize-sc"
-    source_type = LogicalProgram
+    source_type = LogicalIR
     target_type = SCProgram
 
-    def run(self, source: LogicalProgram, context: CompileContext) -> SCProgram:
+    def run(self, source: LogicalIR, context: CompileContext) -> SCProgram:
         del context
         return normalize_sc_program(source)
 

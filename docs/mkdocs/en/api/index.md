@@ -12,6 +12,7 @@ workflow.
 ## Build programs
 
 - [Program](program.md)
+- [Compiler](compiler.md)
 - [Registers](registers.md)
 - [Operations](operations.md)
 - [Pulse control](pulse-control/index.md)

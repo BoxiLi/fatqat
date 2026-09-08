@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...logical_program import LogicalProgram
 from ...operations import Measurement
 from ...program import Program, _AppliedOperation
 from ...qasm import from_qasm
@@ -9,19 +10,28 @@ from ...registers import RegisterRef, RegisterView
 from ..core import CompileContext
 from ..dialects.logical_gate import (
     LogicalGate,
+    LogicalIR,
     LogicalMeasure,
-    LogicalProgram,
 )
 from ..dialects.qasm import QasmSource
 from ..errors import UnsupportedFeatureError
 
 
-def snapshot_program(program: Program) -> LogicalProgram:
-    """Freeze a frontend Program into deterministic, target-independent logical IR."""
-
+def snapshot_program(program: Program) -> LogicalIR:
+    """Freeze a legacy frontend Program into target-independent logical IR."""
     if type(program) is not Program:
         raise TypeError("snapshot_program expects an exact fatqat.Program")
+    return _snapshot_program(program)
 
+
+def _freeze_logical_program(program: LogicalProgram) -> LogicalIR:
+    """Freeze an editable compiler frontend into immutable logical IR."""
+    if type(program) is not LogicalProgram:
+        raise TypeError("freeze pass expects an exact LogicalProgram")
+    return _snapshot_program(program._program)
+
+
+def _snapshot_program(program: Program) -> LogicalIR:
     qubits = _declared_refs(program.quantum_registers)
     clbits = _declared_refs(program.classical_registers)
 
@@ -63,7 +73,7 @@ def snapshot_program(program: Program) -> LogicalProgram:
                 )
             )
 
-    return LogicalProgram(qubits, clbits, tuple(instructions))
+    return LogicalIR(qubits, clbits, tuple(instructions))
 
 
 def _declared_refs(registers) -> tuple[RegisterRef, ...]:
@@ -75,11 +85,24 @@ def _declared_refs(registers) -> tuple[RegisterRef, ...]:
 class ParseQasmPass:
     name = "parse-qasm"
     source_type = QasmSource
-    target_type = LogicalProgram
+    target_type = LogicalIR
 
-    def run(self, source: QasmSource, context: CompileContext) -> LogicalProgram:
+    def run(self, source: QasmSource, context: CompileContext) -> LogicalIR:
         del context
         return snapshot_program(from_qasm(source.text))
 
 
 parse_qasm = ParseQasmPass()
+
+
+class FreezeLogicalPass:
+    name = "freeze-logical"
+    source_type = LogicalProgram
+    target_type = LogicalIR
+
+    def run(self, source: LogicalProgram, context: CompileContext) -> LogicalIR:
+        del context
+        return _freeze_logical_program(source)
+
+
+freeze_logical = FreezeLogicalPass()

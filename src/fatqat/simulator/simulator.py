@@ -28,6 +28,7 @@ from .._parameter_binding import (
     _raise_for_unbound_parameters,
 )
 from ..errors import BackendValidationError, UnsupportedOperationError
+from ..execution import ExecutableProgram
 from .._index_allocation import (
     _ClassicalAllocation,
     _EngineAllocation,
@@ -601,7 +602,7 @@ class Simulator:
 
     def run(
         self,
-        program: Program,
+        program: Program | ExecutableProgram,
         *,
         shots: int = 1024,
         resource_layout: ResourceLayout | None = None,
@@ -617,7 +618,8 @@ class Simulator:
         the original error.
 
         Args:
-            program: Program to execute.
+            program: Program to execute, or an executable compiler result that
+                carries its required resource layout.
             shots: Circuit repetitions. Counts require a positive integer. An
                 explicitly requested stochastic final state requires exactly
                 one shot; deterministic state-only runs ignore this value.
@@ -684,12 +686,25 @@ class Simulator:
                 selectors, or requested configuration is invalid.
             MatrixImplementationError: If a matrix rule cannot build the
                 selected operation for its target dimensions.
-            TypeError: If ``simulation_config`` or ``result_config`` is not a
-                dictionary or ``None``.
+            TypeError: If ``program`` is not a ``Program`` or
+                ``ExecutableProgram``, or if ``simulation_config`` or
+                ``result_config`` is not a dictionary or ``None``.
             UnsupportedOperationError: If the program contains an operation
                 without a backend implementation, or one whose target key is
                 illegal for this backend.
+            ValueError: If ``resource_layout`` is supplied for an executable
+                compiler result that already carries one.
         """
+        if isinstance(program, ExecutableProgram):
+            if resource_layout is not None:
+                raise ValueError(
+                    "resource_layout cannot be supplied with an ExecutableProgram"
+                )
+            resource_layout = program.resource_layout
+            program = program.program
+        elif not isinstance(program, Program):
+            raise TypeError("program must be a Program or ExecutableProgram")
+
         _raise_for_unbound_parameters(program._instructions)
         prepared = self._prepare_run(
             program,

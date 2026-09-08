@@ -7,8 +7,8 @@ import fatqat as fq
 from fatqat.compiler import CompileContext, UnsupportedFeatureError
 from fatqat.compiler.dialects import (
     LogicalGate,
+    LogicalIR,
     LogicalMeasure,
-    LogicalProgram,
     NAGate,
     NAMeasure,
 )
@@ -32,6 +32,46 @@ def _assert_same_up_to_global_phase(actual: np.ndarray, expected: np.ndarray) ->
     pivot = int(np.argmax(np.abs(expected)))
     phase = actual[pivot] / expected[pivot]
     assert np.allclose(actual, phase / abs(phase) * expected)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        fq.operations.U(0.37, -0.41, 0.73),
+        fq.operations.U1(0.73),
+        fq.operations.U2(-0.41, 0.73),
+        fq.operations.U3(0.37, -0.41, 0.73),
+    ),
+)
+def test_na_normalization_lowers_qasm_u_family_without_changing_semantics(operation):
+    atoms = fq.QuantumRegister(1, name="atoms")
+    source = fq.Program([atoms])
+    source.add(fq.operations.H, atoms[0])
+    source.add(operation, atoms[0])
+
+    normalized = _normalize(source)
+    lowered = fq.Program([atoms])
+    for instruction in normalized.instructions:
+        if type(instruction) is NAGate:
+            lowered.add(instruction.operation, instruction.atoms)
+
+    assert all(
+        type(instruction.operation)
+        in (
+            fq.operations.RX,
+            fq.operations.RY,
+            fq.operations.RZ,
+            type(fq.operations.CZ),
+        )
+        for instruction in normalized.instructions
+        if type(instruction) is NAGate
+    )
+    assert any(
+        instruction.origin_ids == ("logical.1",)
+        for instruction in normalized.instructions
+        if type(instruction) is NAGate
+    )
+    _assert_same_up_to_global_phase(_statevector(lowered), _statevector(source))
 
 
 def test_normalize_na_uses_native_ry_and_decomposes_cx():
@@ -218,10 +258,10 @@ def test_normalize_na_preserves_terminal_measurements_and_their_refs():
 def test_normalize_na_rejects_reset_and_nonterminal_measurement():
     atom = fq.QuantumRegister(1, name="atom")[0]
     bit = fq.ClassicalRegister(1, name="bit")[0]
-    reset = LogicalProgram(
+    reset = LogicalIR(
         (atom,), (), (LogicalGate("logical.0", fq.operations.Reset, (atom,)),)
     )
-    dynamic = LogicalProgram(
+    dynamic = LogicalIR(
         (atom,),
         (bit,),
         (

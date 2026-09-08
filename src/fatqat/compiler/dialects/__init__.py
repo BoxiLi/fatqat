@@ -2,10 +2,10 @@
 
 from .logical_gate import (
     LogicalGate,
+    LogicalIR,
     LogicalInstruction,
     LogicalMeasure,
-    LogicalProgram,
-    verify_logical_program,
+    verify_logical_ir,
 )
 from .na_gate import (
     NAGate,
@@ -49,10 +49,10 @@ from .sc_native import (
 
 __all__ = [
     "LogicalGate",
+    "LogicalIR",
     "LogicalInstruction",
     "LogicalMeasure",
-    "LogicalProgram",
-    "verify_logical_program",
+    "verify_logical_ir",
     "NAGate",
     "NAInstruction",
     "NAMeasure",

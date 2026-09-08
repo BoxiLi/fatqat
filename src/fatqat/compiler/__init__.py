@@ -4,6 +4,7 @@ from .core import (
     CompilationResult,
     CompileContext,
     Compiler,
+    ExecutableCompilationResult,
     Pipeline,
     TranslationPass,
 )
@@ -17,8 +18,12 @@ from .errors import (
 )
 from .ir import IRDefinition, IRProgram, IRRegistry
 from .pipelines import (
+    LOGICAL_NA_PIPELINE,
+    LOGICAL_SC_PIPELINE,
     NA_PIPELINE,
     SC_PIPELINE,
+    compile_to_na,
+    compile_to_sc,
     compile_qasm_to_na,
     compile_qasm_to_sc,
     create_na_pipeline,
@@ -29,6 +34,7 @@ from .visualization import create_na_animation, save_na_animation
 
 __all__ = [
     "CompilationResult",
+    "ExecutableCompilationResult",
     "CompileContext",
     "Compiler",
     "Pipeline",
@@ -44,6 +50,10 @@ __all__ = [
     "IRRegistry",
     "NA_PIPELINE",
     "SC_PIPELINE",
+    "LOGICAL_NA_PIPELINE",
+    "LOGICAL_SC_PIPELINE",
+    "compile_to_na",
+    "compile_to_sc",
     "compile_qasm_to_na",
     "compile_qasm_to_sc",
     "create_na_pipeline",

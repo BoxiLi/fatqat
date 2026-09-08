@@ -28,6 +28,7 @@ category_order:
   - foundations
   - algorithms
   - neutral-atom-physics
+  - power-systems
 
 categories:
   foundations:
@@ -48,3 +49,9 @@ categories:
       description: >-
         Move from programmable connectivity to continuous-time Rydberg dynamics and
         constrained many-body evolution.
+  power-systems:
+    en:
+      title: Power systems
+      description: >-
+        Apply the QUBO and QAOA machinery to grid operation problems, where the
+        encoding decides whether a network fits on the device at all.

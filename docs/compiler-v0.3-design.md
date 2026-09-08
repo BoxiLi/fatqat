@@ -1,7 +1,7 @@
 # FatQat Compiler v0.3 设计
 
-> 状态：已按本文方案实现，等待合并审阅  
-> 基线：开放仓库 `git@github.com:spaceqat/fatqat.git`，`spaceqat/main@221eb43`  
+> 状态：已按本文方案实现，等待合并审阅
+> 基线：开放仓库 `git@github.com:spaceqat/fatqat.git`，`spaceqat/main@221eb43`
 > 日期：2026-09-07
 
 ## 1. v0.3 要解决的问题

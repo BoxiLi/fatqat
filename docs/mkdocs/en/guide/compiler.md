@@ -100,7 +100,9 @@ OpenQASM remains an equal frontend through
 [`compile_qasm_to_sc`][fatqat.compiler.compile_qasm_to_sc] and
 [`compile_qasm_to_na`][fatqat.compiler.compile_qasm_to_na]. Python and QASM
 inputs converge at the same immutable logical IR, so all later lowering is
-shared. Their default results use the same direct execution API:
+shared. The OpenQASM `U`, `u1`, `u2`, and `u3` families are normalized into
+the existing target rotations; they are not added to the SC or NA hardware
+dialects. Their default results use the same direct execution API:
 
 ```python
 qasm_source = """

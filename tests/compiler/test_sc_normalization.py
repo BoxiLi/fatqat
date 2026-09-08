@@ -1,15 +1,60 @@
 import math
 
+import numpy as np
 import pytest
 
 import fatqat as fq
 from fatqat.compiler import CompileContext, UnsupportedFeatureError
+from fatqat.compiler.algorithms import topological_order
 from fatqat.compiler.dialects import MEASURE, SC_INSTRUCTION_RULES, SCProgram
 from fatqat.compiler.passes import normalize_sc, normalize_sc_program, snapshot_program
 
 
 def _normalize(program):
     return normalize_sc.run(snapshot_program(program), CompileContext())
+
+
+def _statevector(program: fq.Program) -> np.ndarray:
+    return (
+        fq.simulator.Simulator("SV")
+        .run(program, result_config={"counts": False, "final_state": True})
+        .result()
+        .get_statevector()
+    )
+
+
+def _assert_same_up_to_global_phase(actual: np.ndarray, expected: np.ndarray) -> None:
+    pivot = int(np.argmax(np.abs(expected)))
+    phase = actual[pivot] / expected[pivot]
+    assert np.allclose(actual, phase / abs(phase) * expected)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        fq.operations.U(0.37, -0.41, 0.73),
+        fq.operations.U1(0.73),
+        fq.operations.U2(-0.41, 0.73),
+        fq.operations.U3(0.37, -0.41, 0.73),
+    ),
+)
+def test_sc_normalization_lowers_qasm_u_family_without_changing_semantics(operation):
+    qubits = fq.QuantumRegister(1)
+    source = fq.Program([qubits])
+    source.add(fq.operations.H, qubits[0])
+    source.add(operation, qubits[0])
+
+    normalized = _normalize(source)
+    lowered = fq.Program([qubits])
+    for node_id in topological_order(normalized):
+        node = normalized.nodes[node_id]
+        lowered.add(node.instruction, node.qubits)
+
+    assert all(
+        type(node.instruction) in SC_INSTRUCTION_RULES for node in normalized.nodes
+    )
+    assert any("logical.1" in node.origin_ids for node in normalized.nodes)
+    _assert_same_up_to_global_phase(_statevector(lowered), _statevector(source))
 
 
 def test_direct_sc_operations_and_semantic_swap_are_preserved():

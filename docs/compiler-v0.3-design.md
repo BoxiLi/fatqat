@@ -160,6 +160,7 @@ v0.3 不把 iSWAP、barrier、pulse、`Put`、`Pair` 或 `Unpair` 加入 logical
 
 - SC normalization 当前支持上述核心集合，包括 `sx` 和 `reset`。
 - NA normalization 当前不支持 `sx` 和 `reset`；公开入口以 `PassError` 报告失败，并保留 normalization pass 给出的 unsupported detail。
+- QASM `U`、`u1`、`u2`、`u3` 在 normalization 阶段展开成既有旋转门，不进入 SC 或 NA 硬件 dialect。
 - 当前 logical IR 只接受有限实数角度。symbolic parameter 在 v0.3 中仍需编译前绑定。
 - 测量保持 terminal-only 约束。动态电路、条件执行和中途测量不属于 v0.3。
 

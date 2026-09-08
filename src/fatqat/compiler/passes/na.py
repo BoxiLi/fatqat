@@ -117,6 +117,29 @@ def _lower_gate(builder: _NABuilder, instruction: LogicalGate) -> None:
     if operation is ops.Tdg:
         builder.add_gate(ops.RZ(-math.pi / 4), atoms, origin_id)
         return
+    if type(operation) is ops.U1:
+        builder.add_gate(ops.RZ(operation.lam), atoms, origin_id)
+        return
+    if type(operation) is ops.U2:
+        _add_u(
+            builder,
+            math.pi / 2,
+            operation.phi,
+            operation.lam,
+            atoms[0],
+            origin_id,
+        )
+        return
+    if type(operation) in (ops.U, ops.U3):
+        _add_u(
+            builder,
+            operation.theta,
+            operation.phi,
+            operation.lam,
+            atoms[0],
+            origin_id,
+        )
+        return
     if type(operation) is Phase:
         builder.add_gate(ops.RZ(operation.theta), atoms, origin_id)
         return
@@ -137,6 +160,19 @@ def _lower_gate(builder: _NABuilder, instruction: LogicalGate) -> None:
 def _add_h(builder: _NABuilder, atom: RegisterRef, origin_id: str) -> None:
     builder.add_gate(ops.RZ(math.pi), (atom,), origin_id)
     builder.add_gate(ops.RY(math.pi / 2), (atom,), origin_id)
+
+
+def _add_u(
+    builder: _NABuilder,
+    theta: float,
+    phi: float,
+    lam: float,
+    atom: RegisterRef,
+    origin_id: str,
+) -> None:
+    builder.add_gate(ops.RZ(lam), (atom,), origin_id)
+    builder.add_gate(ops.RY(theta), (atom,), origin_id)
+    builder.add_gate(ops.RZ(phi), (atom,), origin_id)
 
 
 def _add_cx(

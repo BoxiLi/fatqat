@@ -215,9 +215,30 @@ def _lower_gate(builder: _SCBuilder, instruction: LogicalGate) -> None:
         builder.add(ops.RX(math.pi / 2), qubits, origins)
         return
     if type(operation) is RY:
-        builder.add(ops.RZ(-math.pi / 2), qubits, origins)
-        builder.add(ops.RX(operation.theta), qubits, origins)
-        builder.add(ops.RZ(math.pi / 2), qubits, origins)
+        _add_ry(builder, operation.theta, qubits[0], origins)
+        return
+    if type(operation) is ops.U1:
+        builder.add(ops.RZ(operation.lam), qubits, origins)
+        return
+    if type(operation) is ops.U2:
+        _add_u(
+            builder,
+            math.pi / 2,
+            operation.phi,
+            operation.lam,
+            qubits[0],
+            origins,
+        )
+        return
+    if type(operation) in (ops.U, ops.U3):
+        _add_u(
+            builder,
+            operation.theta,
+            operation.phi,
+            operation.lam,
+            qubits[0],
+            origins,
+        )
         return
     if type(operation) is Phase:
         builder.add(ops.RZ(operation.theta), qubits, origins)
@@ -237,6 +258,30 @@ def _add_h(builder: _SCBuilder, qubit: RegisterRef, origins: tuple[str, ...]) ->
     builder.add(ops.RZ(math.pi / 2), (qubit,), origins)
     builder.add(ops.RX(math.pi / 2), (qubit,), origins)
     builder.add(ops.RZ(math.pi / 2), (qubit,), origins)
+
+
+def _add_ry(
+    builder: _SCBuilder,
+    theta: float,
+    qubit: RegisterRef,
+    origins: tuple[str, ...],
+) -> None:
+    builder.add(ops.RZ(-math.pi / 2), (qubit,), origins)
+    builder.add(ops.RX(theta), (qubit,), origins)
+    builder.add(ops.RZ(math.pi / 2), (qubit,), origins)
+
+
+def _add_u(
+    builder: _SCBuilder,
+    theta: float,
+    phi: float,
+    lam: float,
+    qubit: RegisterRef,
+    origins: tuple[str, ...],
+) -> None:
+    builder.add(ops.RZ(lam), (qubit,), origins)
+    _add_ry(builder, theta, qubit, origins)
+    builder.add(ops.RZ(phi), (qubit,), origins)
 
 
 def _normalize_angle(theta: float) -> float:

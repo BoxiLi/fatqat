@@ -8,9 +8,9 @@ records its resources and ordered instructions without deciding how a backend
 will execute them.
 
 If you want the compiler to map and route a static gate circuit before it is
-run, use [`LogicalProgram`][fatqat.LogicalProgram] and the
-[compiler workflow](compiler.md). `Program` remains the execution and
-direct-control interface; users do not manually convert between the two.
+run, pass the Program to [`compile_to_sc`][fatqat.compiler.compile_to_sc] or
+[`compile_to_na`][fatqat.compiler.compile_to_na]. The
+[compiler workflow](compiler.md) describes supported gates and source restrictions.
 
 This chapter begins with a small qubit circuit, then introduces registers,
 feedforward, reusable parameters, mixed local dimensions, drawing, and direct

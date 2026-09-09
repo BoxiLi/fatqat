@@ -1,22 +1,27 @@
 # Compile a logical circuit
 
-Use [`LogicalProgram`][fatqat.LogicalProgram] when you want FatQat to choose a
-hardware-family instruction set, map logical qubits, and route two-qubit gates.
-It is a small, editable circuit frontend with familiar gate methods:
+Build a [`Program`][fatqat.Program] and compile it when you want FatQat to
+choose a hardware-family instruction set, map logical qubits, and route
+two-qubit gates. Use the same authoring interface as for direct simulation:
 
 ```python
 import fatqat as fq
 
-circuit = fq.LogicalProgram(2, 2)
-circuit.h(0)
-circuit.cx(0, 1)
+circuit = fq.Program(2, 2)
+circuit.add(fq.operations.H, 0)
+circuit.add(fq.operations.CX, (0, 1))
 circuit.measure_all()
 ```
 
-`LogicalProgram` is distinct from [`Program`][fatqat.Program]. A
-`LogicalProgram` is input to the compiler. A `Program` is the general container
-accepted by simulators and emulators, including direct controls and dynamic
-behavior that the current compiler does not lower.
+Compilation snapshots the Program without editing it, so the same source can
+still be simulated directly or compiled for another target. The compiler
+accepts the static, numeric gate subset described below; direct simulation
+continues to support broader Program behavior.
+
+You can also construct `fq.LogicalProgram(2, 2)` and use the same `add()` and
+measurement methods. [`LogicalProgram`][fatqat.LogicalProgram] is a subclass of
+`Program` and is **under development**: it does not yet restrict which
+operations you can add. Both types follow the same compiler restrictions.
 
 ## Compile and run on an SC profile
 
@@ -86,13 +91,17 @@ compiler inputs.
 
 ```python
 theta = fq.Parameter("theta")
-template = fq.LogicalProgram(1).rx(theta, 0)
+template = fq.Program(1)
+template.add(fq.operations.RX(theta), 0)
 bound = template.assign_parameters({theta: 0.25})
 ```
 
-The frontend offers the union of the current logical gate methods. Target
-normalization reports unsupported combinations: in particular, the current NA
-route rejects `sx()` and `reset()`. Such a failure is reported as a
+Each classical slot may be written at most once. RegisterView operands and
+direct physical controls are unsupported. For grouped gates, add operations
+using scalar register references before compiling.
+
+Target normalization reports unsupported combinations: in particular, the
+current NA route rejects `SX` and `Reset`. Such a failure is reported as a
 [`PassError`][fatqat.compiler.PassError] naming the pass and the underlying
 unsupported operation.
 

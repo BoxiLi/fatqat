@@ -28,7 +28,7 @@ def _freeze_logical_program(program: LogicalProgram) -> LogicalIR:
     """Freeze an editable compiler frontend into immutable logical IR."""
     if type(program) is not LogicalProgram:
         raise TypeError("freeze pass expects an exact LogicalProgram")
-    return _snapshot_program(program._program)
+    return _snapshot_program(program)
 
 
 def _snapshot_program(program: Program) -> LogicalIR:

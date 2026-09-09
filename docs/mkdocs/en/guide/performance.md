@@ -103,8 +103,8 @@ measurement, reset, feedforward, or stochastic trajectories. Avoid estimating
 shot cost from `shots` alone; benchmark the same Program and result request you
 will use in practice.
 
-See [Ask questions of a run](interpret-results.md) for choosing an answer and
-the [Simulator API](../api/simulator.md) for exact method and result
+See [Estimate observables](interpret-results.md) for expectation values and
+uncertainty, and the [Simulator API](../api/simulator.md) for method and result
 constraints.
 
 ## Compare NumPy and Numba on your workload

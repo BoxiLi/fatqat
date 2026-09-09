@@ -34,8 +34,8 @@ categories:
     en:
       title: Foundations
       description: >-
-        Start with a compact circuit whose state, samples, and visual interpretation
-        can all be checked by hand.
+        Learn to build, run, and interpret compact quantum experiments, from
+        circuits and measurement to control pulses.
   algorithms:
     en:
       title: Algorithms

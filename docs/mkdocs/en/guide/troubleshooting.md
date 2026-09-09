@@ -142,8 +142,8 @@ execution engine.
         state = result.get_statevector()
     ```
 
-    [Ask questions of a run](interpret-results.md) connects each output to the
-    question it answers.
+    The [Result reference](../api/result.md) lists the available fields, their
+    accessors, and which runs produce them.
 
 ??? question "How are count strings ordered?"
 

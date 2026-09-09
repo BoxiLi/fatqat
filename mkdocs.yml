@@ -140,19 +140,20 @@ nav:
           - Programs and registers: guide/program.md
           - Compile a logical circuit: guide/compiler.md
           - Execution models: guide/execution-models.md
-      - Study algorithm behavior:
+      - Run and analyze programs:
           - Simulation: guide/simulation.md
-          - Interpret results: guide/interpret-results.md
-          - Visualization: guide/visualization.md
+          - Estimate observables: guide/interpret-results.md
           - Ideal and noisy runs: guide/ideal-and-noisy.md
+          - Visualization: guide/visualization.md
           - Performance: guide/performance.md
       - Model hardware and physics:
           - Hardware-profile simulation: guide/hardware-profile-simulation.md
           - Hamiltonian emulation: guide/hamiltonian-emulation.md
           - Transmon emulation: guide/transmon-emulation.md
           - Neutral-atom emulation: guide/neutral-atom-emulation.md
-      - Interoperability: guide/interoperability.md
-      - Troubleshooting: guide/troubleshooting.md
+      - Connect and diagnose:
+          - Interoperability: guide/interoperability.md
+          - Troubleshooting: guide/troubleshooting.md
   - Tutorials:
       - tutorials/index.md
   - API reference:

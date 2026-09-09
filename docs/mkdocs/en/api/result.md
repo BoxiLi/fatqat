@@ -63,8 +63,9 @@ A counts-only run zero-fills every declared classical slot that was never
 written by measurement and emits a standard `UserWarning`. This usually
 indicates a missing measurement.
 
-See [Ask questions of a run](../guide/interpret-results.md) for the guided interpretation workflow;
-the conventions above are the canonical state-axis and count-order contract.
+For examples of reading states and measurement counts, see
+[Simulation](../guide/simulation.md). For expectation values and standard
+errors, see [Estimate observables](../guide/interpret-results.md).
 
 ## Draw counts
 

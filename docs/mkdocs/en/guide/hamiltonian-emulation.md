@@ -1,9 +1,11 @@
 # Follow a Program into physical dynamics
 
-A FatQat emulator still accepts a [`Program`][fatqat.Program], but it changes
-what execution means. Instead of applying discrete gate transformations, it
-builds a physical schedule and integrates a time-dependent Hamiltonian (and,
-when requested, Lindblad evolution).
+A FatQat emulator follows the physical state during timed controls. It accepts
+a [`Program`][fatqat.Program], builds a physical schedule, and integrates a
+time-dependent Hamiltonian (and, when requested, Lindblad evolution). Use it
+to study pulse duration, coupling, leakage, or noise acting continuously over
+elapsed time. Circuit simulators can include noise channels without resolving
+this time evolution.
 
 Two authoring paths meet at that same schedule:
 
@@ -44,8 +46,9 @@ three-level transmons:
 `RX` remains an ordinary Program operation. At execution time, the emulator's
 gate map obtains a pulse recipe from its calibration and binds that recipe to
 the model's drive channel. The physical model has two qutrits, so the returned
-vector covers all $3^2$ basis states, including the unaddressed second
-transmon. This physical qutrit state is not a logical qutrit Program.
+vector covers all $3^2$ basis states, including the second transmon. The Program
+still declares one two-level qubit. Each transmon's third physical level lets
+the result show leakage out of its qubit states, `|0>` and `|1>`.
 
 Packaged models and calibrations are reference snapshots. Supply a validated
 model document and implementation map when the physical system or calibration
@@ -85,11 +88,11 @@ domains for each emulator.
 
 ## Read a pulse as continuous evolution
 
-The two waveform samples above are not two gate steps. Over the full 20-unit
-interval, the emulator interpolates the drive, combines it with drift and
-coupling terms, and integrates the physical state. That is why the result
-retains every level in the model, including levels that the logical Program
-did not declare.
+The three waveform samples above specify a drive over the full 20-unit
+interval. The emulator interpolates between them, combines the drive with
+drift and coupling terms, and integrates the physical state. The state covers
+every level in the physical model throughout the pulse, including levels that
+the Program did not declare.
 
 The next chapter turns this mechanism into a concrete transmon experiment: it
 compares a calibrated rotation with a direct drive and makes the resulting
@@ -99,15 +102,15 @@ leakage visible.
 
 All controls inside one `PulseOperation` share its interval; `start_offset`
 can move an individual waveform within that interval. Between operations, the
-lightweight scheduler preserves source order for blocks that claim the same
-physical resource and may overlap independent blocks. Choose `"ASAP"` or
+schedule preserves source order for blocks that use the same physical resource
+and may overlap independent blocks. Choose `"ASAP"` or
 `"ALAP"` through `simulation_config` when that placement matters.
 
 Drift and background continuous noise evolve throughout elapsed time. On an
 emulator that supports classical conditions, a false condition can skip a
 control block without deleting its duration, so the model still evolves during
-the interval. Those differences are why a Hamiltonian emulator answers a
-different question from a hardware-profile simulator.
+the interval. This lets you study the effect of elapsed time even when no
+control is active.
 
 The constructor's `method` selects the mathematical representation and Result
 accessor: `statevector` (the default), `density_matrix`, or `unitary`. It does

@@ -60,9 +60,9 @@ target, continue with [Compile a logical circuit](compiler.md).
     ---
 
     [Simulation](simulation.md) ·
-    [Results](interpret-results.md) ·
-    [Visualization](visualization.md) ·
+    [Observables](interpret-results.md) ·
     [Ideal and noisy runs](ideal-and-noisy.md) ·
+    [Visualization](visualization.md) ·
     [Performance](performance.md)
 
 -   :material-memory:{ .lg .middle } **Model hardware and dynamics**

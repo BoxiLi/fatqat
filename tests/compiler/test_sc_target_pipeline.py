@@ -218,3 +218,41 @@ def test_compilation_preserves_declarations_without_measurements(has_declaration
 
     assert compiled.output.classical_registers == registers
     assert compiled.program.classical_registers == registers
+    _assert_classical_counts(
+        backend,
+        compiled,
+        "00" if has_declarations else "",
+        has_declarations,
+        result_config={"counts": True, "final_state": False},
+    )
+
+
+@pytest.mark.parametrize(
+    ("backend_type", "compile_qasm"),
+    (
+        (SCQubitSimulator, compile_qasm_to_sc),
+        (_SCQubitRotationSimulator, _compile_qasm_to_sc_rotation),
+    ),
+)
+@pytest.mark.parametrize("has_declarations", (False, True))
+def test_qasm_compilation_preserves_declarations_without_measurements(
+    backend_type, compile_qasm, has_declarations
+):
+    declaration = "bit[2] unused;" if has_declarations else ""
+    source = f"OPENQASM 3.0; qubit[1] q; {declaration} x q[0];"
+    backend = backend_type(num_qubits=1, couplings=(), runtime="numpy")
+
+    compiled = compile_qasm(source, backend, seed=7)
+
+    registers = compiled.program.classical_registers
+    assert compiled.output.classical_registers == registers
+    assert [(register.name, register.size) for register in registers] == (
+        [("unused", 2)] if has_declarations else []
+    )
+    _assert_classical_counts(
+        backend,
+        compiled,
+        "00" if has_declarations else "",
+        has_declarations,
+        result_config={"counts": True, "final_state": False},
+    )

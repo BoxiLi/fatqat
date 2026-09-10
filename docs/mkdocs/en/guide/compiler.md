@@ -19,9 +19,10 @@ accepts the static, numeric gate subset described below; direct simulation
 continues to support broader Program behavior.
 
 You can also construct `fq.LogicalProgram(2, 2)` and use the same `add()` and
-measurement methods. [`LogicalProgram`][fatqat.LogicalProgram] is a subclass of
-`Program` and is **under development**: it does not yet restrict which
-operations you can add. Both types follow the same compiler restrictions.
+measurement methods. [`LogicalProgram`][fatqat.LogicalProgram] restricts
+authoring to built-in device-independent operations. Both types support
+conditions for direct simulation and follow the same static compiler
+restrictions when compiled.
 
 ## Compile and run on an SC profile
 
@@ -96,9 +97,15 @@ template.add(fq.operations.RX(theta), 0)
 bound = template.assign_parameters({theta: 0.25})
 ```
 
-Each classical slot may be written at most once. RegisterView operands and
-direct physical controls are unsupported. For grouped gates, add operations
-using scalar register references before compiling.
+Each classical slot may be written at most once. Register views are expanded
+into scalar gate occurrences when the source is frozen, preserving register
+identity and operand order.
+
+A `Program` input is converted to `LogicalProgram` before any passes run.
+Device operations and custom operation classes raise `ValueError` during
+this conversion, even when emitting the editable logical source. Built-in
+logical operations are checked for static compiler and target support at
+later boundaries.
 
 Target normalization reports unsupported combinations: in particular, the
 current NA route rejects `SX` and `Reset`. Such a failure is reported as a

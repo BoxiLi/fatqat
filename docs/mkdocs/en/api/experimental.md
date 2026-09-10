@@ -11,8 +11,8 @@ cover your integration.
 
 ## LogicalProgram
 
-[`LogicalProgram`](logical-program.md) is under development; its logical-only
-operation restrictions are not yet defined.
+[`LogicalProgram`](logical-program.md) is under development; it accepts built-in
+device-independent operations while its compiler support continues to evolve.
 
 ## Direct construction
 

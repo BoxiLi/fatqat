@@ -186,8 +186,9 @@ def compile_to_sc(
     """Compile a Program or LogicalProgram to an executable superconducting result.
 
     Lowering snapshots the source without editing it. Bind symbolic parameters
-    before compiling; measurements must be terminal, and classical conditions,
-    RegisterView operands, and direct physical controls are unsupported.
+    before compiling; measurements must be terminal, and classical conditions
+    and direct physical controls are unsupported. Register views expand into
+    scalar gates when frozen.
 
     Args:
         source: An exact Program or LogicalProgram containing static numeric gates.
@@ -202,10 +203,12 @@ def compile_to_sc(
         for earlier boundaries. Emitting LogicalProgram.IR_ID runs no passes:
         a LogicalProgram input is returned unchanged, while a Program input
         is converted to an independently editable LogicalProgram. Register
-        identity is preserved; nested metadata values remain shared. Gate and
-        target validation begins at later boundaries.
+        identity is preserved; nested metadata values remain shared. Conversion
+        rejects device and custom operations; static gate and target validation
+        begins at later boundaries.
 
     Raises:
+        ValueError: If a Program input contains a device or custom operation.
         ValidationError: If the source type or an IR boundary is invalid.
         EmitNotFoundError: If emit is not a boundary of the selected route.
         PassError: If snapshotting or target lowering fails.
@@ -269,8 +272,9 @@ def compile_to_na(
     """Compile a Program or LogicalProgram to an executable neutral-atom result.
 
     Lowering snapshots the source without editing it. Bind symbolic parameters
-    before compiling; measurements must be terminal, and classical conditions,
-    RegisterView operands, and direct physical controls are unsupported.
+    before compiling; measurements must be terminal, and classical conditions
+    and direct physical controls are unsupported. Register views expand into
+    scalar gates when frozen.
     NA lowering rejects SX and Reset operations.
 
     Args:
@@ -285,10 +289,12 @@ def compile_to_na(
         for earlier boundaries. Emitting LogicalProgram.IR_ID runs no passes:
         a LogicalProgram input is returned unchanged, while a Program input
         is converted to an independently editable LogicalProgram. Register
-        identity is preserved; nested metadata values remain shared. Gate and
-        target validation begins at later boundaries.
+        identity is preserved; nested metadata values remain shared. Conversion
+        rejects device and custom operations; static gate and target validation
+        begins at later boundaries.
 
     Raises:
+        ValueError: If a Program input contains a device or custom operation.
         ValidationError: If the source type or an IR boundary is invalid.
         EmitNotFoundError: If emit is not a boundary of the selected route.
         PassError: If snapshotting or target lowering fails.

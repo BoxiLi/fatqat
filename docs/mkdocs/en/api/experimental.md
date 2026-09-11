@@ -9,6 +9,11 @@ The APIs listed here are public, but their signatures and behavior may change
 between releases. Use them only when the stable backend workflow does not
 cover your integration.
 
+## LogicalProgram
+
+[`LogicalProgram`](logical-program.md) is under development; it accepts built-in
+device-independent operations while its compiler support continues to evolve.
+
 ## Direct construction
 
 

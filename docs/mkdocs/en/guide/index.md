@@ -3,8 +3,7 @@
 Choose the level of detail that answers your question. Direct simulation and
 physics workflows start from the same backend-independent
 [`Program`][fatqat.Program]. When mapping and routing are part of the question,
-start from the compiler's concise
-[`LogicalProgram`][fatqat.LogicalProgram] instead.
+pass the Program to the [compiler](compiler.md).
 
 !!! tip "New to FatQat?"
 

@@ -9,10 +9,12 @@ The APIs listed here are public, but their signatures and behavior may change
 between releases. Use them only when the stable backend workflow does not
 cover your integration.
 
-## LogicalProgram
+## Compiler
 
-[`LogicalProgram`](logical-program.md) is under development; it accepts built-in
-device-independent operations while its compiler support continues to evolve.
+The [compiler](compiler.md) is under development; its interfaces and supported
+behavior may change. The optional [LogicalProgram](compiler.md#logicalprogram)
+subclass accepts built-in device-independent operations while its compiler
+support continues to evolve.
 
 ## Direct construction
 

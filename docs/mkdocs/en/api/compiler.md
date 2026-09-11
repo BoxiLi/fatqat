@@ -4,8 +4,13 @@ title: "Compiler"
 
 # Compiler
 
-Pass a [`Program`][fatqat.Program] or
-[`LogicalProgram`][fatqat.LogicalProgram] to the static gate compiler to map and
+!!! warning "Compiler under development"
+
+    The compiler module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
+
+Pass a [`Program`][fatqat.Program] to the static gate compiler to map and
 lower it for a superconducting or neutral-atom target. Compilation snapshots
 the source without editing it. See the [compiler guide](../guide/compiler.md)
 for supported source behavior and complete execution examples.
@@ -56,3 +61,39 @@ simulator.
 ## Errors
 
 ::: fatqat.compiler.PassError
+
+## LogicalProgram
+
+[`LogicalProgram`][fatqat.LogicalProgram] is a restricted
+[`Program`](program.md) for device-independent circuits. It uses the same
+constructor and authoring interface; `add()`, `measure()`, and `measure_all()`
+mutate in place and return `None`. Both types can be passed to
+`compile_to_sc()` and `compile_to_na()`.
+
+`add()` accepts the built-in qubit and qudit circuit gates, reset, and
+barriers. It rejects device operations (including atom placement, pairing,
+and pulse controls) and custom operation classes, including subclasses of
+built-in gates, with `ValueError`. Measurements use `measure()`.
+
+Classical conditions remain available for direct simulation. Register views
+follow `Program`'s authoring rules and expand into scalar gates when compiled.
+Compilation applies the
+[static gate and target restrictions](../guide/compiler.md#supported-source-behavior).
+
+```python
+import fatqat as fq
+
+circuit = fq.LogicalProgram(2, 2, metadata={"name": "bell"})
+circuit.add(fq.operations.H, 0)
+circuit.add(fq.operations.CX, (0, 1))
+circuit.measure_all()
+compiled = fq.compiler.compile_to_sc(circuit, fq.simulator.SCQubitSimulator())
+```
+
+The inherited `copy()` and `assign_parameters()` methods return independently
+editable `LogicalProgram` instances with the same operation restrictions.
+
+::: fatqat.LogicalProgram
+    options:
+      inherited_members: false
+      show_bases: true

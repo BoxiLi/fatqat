@@ -1,5 +1,11 @@
 # Compile a logical circuit
 
+!!! warning "Compiler under development"
+
+    The compiler module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
+
 Build a [`Program`][fatqat.Program] and compile it when you want FatQat to
 choose a hardware-family instruction set, map logical qubits, and route
 two-qubit gates. Use the same authoring interface as for direct simulation:
@@ -17,12 +23,6 @@ Compilation snapshots the Program without editing it, so the same source can
 still be simulated directly or compiled for another target. The compiler
 accepts the static, numeric gate subset described below; direct simulation
 continues to support broader Program behavior.
-
-You can also construct `fq.LogicalProgram(2, 2)` and use the same `add()` and
-measurement methods. [`LogicalProgram`][fatqat.LogicalProgram] restricts
-authoring to built-in device-independent operations. Both types support
-conditions for direct simulation and follow the same static compiler
-restrictions when compiled.
 
 ## Compile and run on an SC profile
 

@@ -156,7 +156,8 @@ def test_logical_compilation_preserves_classical_output(
     registers = tuple(
         fq.ClassicalRegister(size, name=name) for name, size in declarations
     )
-    logical = fq.LogicalProgram([qubits], registers).x(qubits[0])
+    logical = fq.LogicalProgram([qubits], registers)
+    logical.add(fq.operations.X, qubits[0])
     for qubit, register, index in measurements:
         logical.measure(qubits[qubit], registers[register][index])
     backend = SCQubitSimulator(num_qubits=2, couplings=((0, 1),), runtime="numpy")
@@ -211,7 +212,8 @@ def test_qasm_compilation_and_bridge_preserve_classical_declarations(
 def test_compilation_preserves_declarations_without_measurements(has_declarations):
     qubits = fq.QuantumRegister(1, name="q")
     registers = (fq.ClassicalRegister(2, name="unused"),) if has_declarations else ()
-    logical = fq.LogicalProgram([qubits], registers).x(qubits[0])
+    logical = fq.LogicalProgram([qubits], registers)
+    logical.add(fq.operations.X, qubits[0])
     backend = SCQubitSimulator(num_qubits=1, couplings=(), runtime="numpy")
 
     compiled = fq.compiler.compile_to_sc(logical, backend)

@@ -12,7 +12,6 @@ workflow.
 ## Build programs
 
 - [Program](program.md)
-- [LogicalProgram](logical-program.md)
 - [Compiler](compiler.md)
 - [Registers](registers.md)
 - [Operations](operations.md)

@@ -35,8 +35,8 @@ categories:
     en:
       title: Foundations
       description: >-
-        Use a qutrit's third level to construct a logical gate and check its
-        coherent action.
+        Learn to build, run, and interpret compact quantum experiments, from
+        circuits and measurement to control pulses.
   algorithms:
     en:
       title: Algorithms

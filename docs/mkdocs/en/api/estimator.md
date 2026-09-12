@@ -29,7 +29,7 @@ result = estimator.run(program, observable).result()
 expectation = result.get_expectation()
 ```
 
-For a guided workflow, see [Ask questions of a run](../guide/interpret-results.md).
+For a guided workflow, see [Estimate observables](../guide/interpret-results.md).
 
 ## Construct an observable
 

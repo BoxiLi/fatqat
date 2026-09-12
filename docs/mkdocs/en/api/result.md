@@ -63,8 +63,9 @@ A counts-only run zero-fills every declared classical slot that was never
 written by measurement and emits a standard `UserWarning`. This usually
 indicates a missing measurement.
 
-See [Ask questions of a run](../guide/interpret-results.md) for the guided interpretation workflow;
-the conventions above are the canonical state-axis and count-order contract.
+For examples of reading states and measurement counts, see
+[Simulation](../guide/simulation.md). For expectation values and standard
+errors, see [Estimate observables](../guide/interpret-results.md).
 
 ## Draw counts
 
@@ -77,9 +78,10 @@ figure = result.draw(number_to_keep=20, sort="count")
 ```
 
 The default `stat="counts"` plots raw occurrences. `stat="frequencies"`
-divides each value by the total number of shots. Colors inherit Matplotlib's
-active style and `rcParams`. `number_to_keep` retains the most frequent
-outcomes and combines the remainder into an `other` bar.
+divides each value by the total number of shots. FATQAT supplies the default
+categorical palette and preserves an explicitly configured Matplotlib color
+cycle and other `rcParams`. `number_to_keep` retains the most frequent outcomes
+and combines the remainder into an `other` bar.
 
 ## Detailed reference
 

@@ -1,22 +1,28 @@
 # Compile a logical circuit
 
-Use [`LogicalProgram`][fatqat.LogicalProgram] when you want FatQat to choose a
-hardware-family instruction set, map logical qubits, and route two-qubit gates.
-It is a small, editable circuit frontend with familiar gate methods:
+!!! warning "Compiler under development"
+
+    The compiler module is under active development. Its interfaces and
+    supported behavior may change between releases. Pin an exact FatQat
+    version when reproducibility matters.
+
+Build a [`Program`][fatqat.Program] and compile it when you want FatQat to
+choose a hardware-family instruction set, map logical qubits, and route
+two-qubit gates. Use the same authoring interface as for direct simulation:
 
 ```python
 import fatqat as fq
 
-circuit = fq.LogicalProgram(2, 2)
-circuit.h(0)
-circuit.cx(0, 1)
+circuit = fq.Program(2, 2)
+circuit.add(fq.operations.H, 0)
+circuit.add(fq.operations.CX, (0, 1))
 circuit.measure_all()
 ```
 
-`LogicalProgram` is distinct from [`Program`][fatqat.Program]. A
-`LogicalProgram` is input to the compiler. A `Program` is the general container
-accepted by simulators and emulators, including direct controls and dynamic
-behavior that the current compiler does not lower.
+Compilation snapshots the Program without editing it, so the same source can
+still be simulated directly or compiled for another target. The compiler
+accepts the static, numeric gate subset described below; direct simulation
+continues to support broader Program behavior.
 
 ## Compile and run on an SC profile
 
@@ -69,6 +75,11 @@ boundary. Pass that result directly to the matching simulator. The final
 compiler IR remains available as `compiled.output`: an `SCNativeProgram` for
 SC or a `ZonedPlan` for NA. `compiled.route` records the passes that ran.
 
+Compiled programs retain classical registers in source declaration order,
+including unused registers and unwritten slots within measured registers.
+Measurement order does not change count-key positions. Counts follow the
+usual [ordering and zero-fill rules](../api/result.md#ordering-and-mutable-values).
+
 An explicit intermediate `emit` returns an inspectable
 [`CompilationResult`][fatqat.compiler.CompilationResult] rather than an
 executable result. The low-level
@@ -86,13 +97,23 @@ compiler inputs.
 
 ```python
 theta = fq.Parameter("theta")
-template = fq.LogicalProgram(1).rx(theta, 0)
+template = fq.Program(1)
+template.add(fq.operations.RX(theta), 0)
 bound = template.assign_parameters({theta: 0.25})
 ```
 
-The frontend offers the union of the current logical gate methods. Target
-normalization reports unsupported combinations: in particular, the current NA
-route rejects `sx()` and `reset()`. Such a failure is reported as a
+Each classical slot may be written at most once. Register views are expanded
+into scalar gate occurrences when the source is frozen, preserving register
+identity and operand order.
+
+A `Program` input is converted to `LogicalProgram` before any passes run.
+Device operations and custom operation classes raise `ValueError` during
+this conversion, even when emitting the editable logical source. Built-in
+logical operations are checked for static compiler and target support at
+later boundaries.
+
+Target normalization reports unsupported combinations: in particular, the
+current NA route rejects `SX` and `Reset`. Such a failure is reported as a
 [`PassError`][fatqat.compiler.PassError] naming the pass and the underlying
 unsupported operation.
 

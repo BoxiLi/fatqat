@@ -132,7 +132,10 @@ figure, axis = plt.subplots()
 program.interaction_frequency().draw(ax=axis, title="Logical interactions")
 ```
 
-Visualizations inherit Matplotlib's active style and `rcParams`; FATQAT does not apply a separate palette. A returned figure can be saved with ordinary Matplotlib APIs:
+FATQAT applies a consistent categorical palette when Matplotlib's default color
+cycle is active. An explicitly configured color cycle and other `rcParams`
+remain in effect, so plots still compose with an application's own theme. A
+returned figure can be saved with ordinary Matplotlib APIs:
 
 ```python
 figure.savefig("interactions.png", dpi=200, bbox_inches="tight")

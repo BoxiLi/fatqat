@@ -3,10 +3,10 @@ name: Build and optionally publish to PyPI
 on:
   workflow_dispatch:
     inputs:
-      publish:
-        description: Publish to PyPI (select a release tag)
-        type: boolean
-        default: false
+      confirm_ref:
+        description: Type the selected branch or tag name to publish (leave blank to build only)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -26,23 +26,13 @@ jobs:
           python -m build
           python -m twine check --strict dist/*
 
-      - name: Verify release tag before publishing
-        if: inputs.publish
+      - name: Verify publishing request
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          CONFIRM_REF: ${{ inputs.confirm_ref }}
+          RELEASE_REF: ${{ github.ref_name }}
         run: |
           python -m pip install --no-deps dist/*.whl
-          python - <<'PY'
-          import os
-          from importlib.metadata import version
-          from packaging.version import Version
-
-          release = Version(version("fatqat"))
-          assert os.environ["REF_TYPE"] == "tag", "Select a release tag to publish"
-          assert os.environ["RELEASE_TAG"] == f"v{release}", "Tag and package version differ"
-          assert not release.is_devrelease and release.local is None, "Not a release version"
-          PY
+          python .github/scripts/check_publish.py
 
       - uses: actions/upload-artifact@v7
         with:
@@ -51,7 +41,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: inputs.publish && github.repository == 'spaceqat/fatqat'
+    if: inputs.confirm_ref != '' && github.repository == 'spaceqat/fatqat'
     needs: build
     runs-on: ubuntu-latest
     environment: pypi

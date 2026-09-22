@@ -1,10 +1,7 @@
 {% extends "base.html" %}
 
-{# Resolve language roots for this RTD version in the shared template: translation
-   builds inherit it even when they replace the English build hooks. Keep the
-   original config untouched so rendering another page cannot append it twice.
-   Material's language selector uses these roots and their sitemaps to stay on
-   the corresponding page when it exists. #}
+{# Translation builds share this template but replace the English hooks.
+   Copy the config so the version is appended once per page. #}
 {% set alternate = [] %}
 {% for language in config.extra.alternate %}
   {% set _ = alternate.append(dict(language,

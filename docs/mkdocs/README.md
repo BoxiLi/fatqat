@@ -52,18 +52,6 @@ For a complete warnings-as-errors build, run:
 mkdocs build --strict
 ```
 
-## Language menu and versions
-
-Use Material's native `extra.alternate` menu in `mkdocs.yml`. The shared
-`overrides/main.html` appends `READTHEDOCS_VERSION` (`latest` locally); Material
-handles navigation to the corresponding page using the target sitemap.
-Translation builds inherit both files without additional menu code.
-
-Publish matching version slugs in each RTD project. A missing translation version
-is not replaced with `latest`. Older releases need this change backported and
-rebuilt. To add a language, use a language-root URL ending in `/` in
-`extra.alternate`, without a version or page path.
-
 ## Write guides and API pages
 
 Guide and API pages are native Markdown under `en/`. API pages combine curated

@@ -52,6 +52,23 @@ For a complete warnings-as-errors build, run:
 mkdocs build --strict
 ```
 
+## Language menu and versions
+
+The Material language menu is configured once in the root `mkdocs.yml` and
+resolved by `overrides/main.html`. Translation builds inherit both files; they
+do not need a separate menu configuration or the English build hooks.
+
+Language links use RTD's `READTHEDOCS_VERSION` slug (`latest`, `stable`, or a
+release version), with `latest` as the local-preview default. Material uses the
+target version's sitemap to keep the current page when available, otherwise
+opening that version's homepage. It never substitutes `latest` for a release.
+
+Publish matching version slugs in each linked RTD translation project. A menu
+link does not create the translated version: if it has not been published, its
+URL will be unavailable. Existing releases need this configuration backported
+and rebuilt before they gain the menu. Add future languages to `extra.alternate`
+with a language-root URL ending in `/`, without a version or page path.
+
 ## Write guides and API pages
 
 Guide and API pages are native Markdown under `en/`. API pages combine curated

@@ -52,8 +52,9 @@ counts = (
 
 The route freezes the editable circuit, normalizes it to the common SC gate
 IR, performs SABRE mapping and routing, and lowers it to the public
-X/SX/RZ/CZ native profile. The rotation/iSWAP profile is currently private and
-is not part of the public compiler contract.
+X/SX/RZ/CZ native profile. Toffoli (`CCX`) gates are decomposed into one- and
+two-qubit gates before routing. The rotation/iSWAP profile is currently private
+and is not part of the public compiler contract.
 
 ## Compile for a neutral-atom architecture
 

@@ -25,8 +25,10 @@ hero:
   visual_note: Start with one Program, then choose the physical detail at run time.
 ---
 
-> **Development status:** FatQat is under active development, and its interfaces
-> may change between releases. Pin an exact version when reproducibility matters.
+!!! warning "Under active development"
+
+    FatQat is under active development, and its interfaces may change between
+    releases. **Pin an exact version when reproducibility matters.**
 
 <!-- Localized content stays in Markdown; the shared Material hero lives in home.html. -->
 
@@ -131,7 +133,7 @@ algorithm behavior, but the gate decomposition and routing affect noisy results.
 
 ??? abstract "Shared algorithm source — `home_grover_program.py`"
 
-    All three scripts start from the same compact `Program` shown above.
+    All three scripts start from the same compact `LogicalProgram` shown above.
     General simulation runs it directly; the SC and Transmon scripts use
     `compile_to_sc()` to decompose its Toffoli gates and route the circuit onto
     the three-site line. The routing seed is fixed for reproducible results.

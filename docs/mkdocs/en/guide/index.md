@@ -3,7 +3,8 @@
 Choose the level of detail that answers your question. Direct simulation and
 physics workflows start from the same backend-independent
 [`Program`][fatqat.Program]. When mapping and routing are part of the question,
-pass the Program to the [compiler](compiler.md).
+author a [`LogicalProgram`][fatqat.LogicalProgram] for the
+[compiler](compiler.md).
 
 !!! tip "New to FatQat?"
 
@@ -59,9 +60,9 @@ target, continue with [Compile a logical circuit](compiler.md).
     ---
 
     [Simulation](simulation.md) ·
-    [Results](interpret-results.md) ·
-    [Visualization](visualization.md) ·
+    [Observables](interpret-results.md) ·
     [Ideal and noisy runs](ideal-and-noisy.md) ·
+    [Visualization](visualization.md) ·
     [Performance](performance.md)
 
 -   :material-memory:{ .lg .middle } **Model hardware and dynamics**

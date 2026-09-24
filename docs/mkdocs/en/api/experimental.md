@@ -9,10 +9,12 @@ The APIs listed here are public, but their signatures and behavior may change
 between releases. Use them only when the stable backend workflow does not
 cover your integration.
 
-## LogicalProgram
+## Compiler
 
-[`LogicalProgram`](logical-program.md) is under development; its logical-only
-operation restrictions are not yet defined.
+The [compiler](compiler.md) is under development; its interfaces and supported
+behavior may change. Its [LogicalProgram](logical-program.md) frontend accepts
+built-in device-independent operations and is required by the Python compiler
+entry points.
 
 ## Direct construction
 

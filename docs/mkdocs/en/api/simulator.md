@@ -160,8 +160,8 @@ reading a field that may not have been requested.
 `run()` returns an eager [`Job`][fatqat.Job]. Program and option validation
 errors normally raise directly. Errors during execution or result assembly are
 stored on the job and re-raised by [`fatqat.Job.result`][fatqat.Job.result]. See
-[Ask questions of a run](../guide/interpret-results.md) for result accessors and count-order
-intuition. Exact state-axis metadata is specified in [Result](result.md).
+[Result](result.md) for available fields, accessors, count ordering, and
+state-axis metadata.
 
 ## Noise
 

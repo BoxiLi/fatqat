@@ -13,7 +13,7 @@ COMPILER_SEED = 7
 
 def build_logical_program():
     """Build two compact Grover iterations marking 101."""
-    program = fq.Program(3)
+    program = fq.LogicalProgram(3)
 
     def fused_layer(*rotations, rz_targets=()):
         for target, theta in rotations:

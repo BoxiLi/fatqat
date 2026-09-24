@@ -1,163 +1,160 @@
-# Ask questions of a run
+# Estimate observables
 
-Every FatQat execution crosses the same boundary: submit a
-[`Program`][fatqat.Program], receive a [`Job`][fatqat.Job], and call
-[`result`][fatqat.Job.result] for the answer. The useful result depends on the
-question you asked.
+Use [`Estimator`][fatqat.Estimator] to calculate expectation values, such as
+spin correlations or energies. Define the quantity with an
+[`Observable`][fatqat.Observable], then supply a Program and a
+[compatible simulator or emulator](../api/estimator.md#exact-and-sampled-results).
+You can calculate the expectation directly from the state or estimate it
+from a finite number of measurement shots.
 
-We will build one Bell Program and use it four ways: observed outcomes, final
-state, implemented map, and expectation value.
-
-## Build the computation once
-
-Keep the Program unmeasured at first. That leaves state-, map-, and
-observable-based questions open:
+The examples below use the general-purpose `Simulator` and two Bell states.
+Adding a `Z` operation to the Bell circuit changes its relative phase while
+leaving its computational-basis probabilities unchanged:
 
 ```pycon
 >>> import numpy as np
 >>> import fatqat as fq
 >>> import fatqat.operations as ops
->>> bell = fq.Program(2, 2)
+>>> bell = fq.Program(2)
 >>> bell.add(ops.H, 0)
 >>> bell.add(ops.CX, (0, 1))
+>>> phase_flipped = bell.copy()
+>>> phase_flipped.add(ops.Z, 0)
 >>> backend = fq.simulator.Simulator(method="statevector", runtime="numpy")
-```
-
-## What outcomes occurred?
-
-Copy the Program and append measurement when the output you want is a sampled
-classical distribution:
-
-```pycon
->>> measured_bell = bell.copy()
->>> measured_bell.measure_all()
->>> counts_result = backend.run(
-...     measured_bell,
-...     shots=400,
-...     simulation_config={"seed": 7},
-... ).result()
->>> counts = counts_result.get_counts()
->>> sum(counts.values())
-400
->>> set(counts) <= {"00", "11"}
-True
-```
-
-Only the correlated Bell outcomes occur. Count strings display classical slot
-0 on the left, matching tuple position 0. A deliberately asymmetric
-example makes that order visible:
-
-```pycon
->>> order_demo = fq.Program(2, 2)
->>> order_demo.add(ops.X, 0)
->>> order_demo.measure_all()
->>> backend.run(
-...     order_demo,
-...     shots=8,
-...     simulation_config={"seed": 7},
-... ).result().get_counts()
-{'10': 8}
-```
-
-Qubit 0 is `1`, so classical slot 0 appears as the leftmost digit. Tuple counts
-use the same slot order; they avoid string-token parsing for mixed dimensions.
-
-## What state did the run reach?
-
-Run the unmeasured Program and request its natural final state:
-
-```pycon
->>> state_result = backend.run(
-...     bell,
-...     result_config={"counts": False, "final_state": True},
-... ).result()
->>> sorted(state_result.available_data)
-['statevector']
->>> state = state_result.get_statevector()
+>>> state = backend.run(bell).result().get_statevector()
+>>> flipped_state = backend.run(phase_flipped).result().get_statevector()
 >>> np.round(np.abs(state) ** 2, 6).tolist()
+[0.5, 0.0, 0.0, 0.5]
+>>> np.round(np.abs(flipped_state) ** 2, 6).tolist()
 [0.5, 0.0, 0.0, 0.5]
 ```
 
-`available_data` tells you what this run actually produced before you choose
-an accessor. Here the state has equal probability on `|00>` and `|11>`. A
-density-matrix run expresses the same pure state as a matrix and can also
-represent exact mixed evolution. Hamiltonian emulators may return states that
-include non-computational physical levels or model subsystems not addressed by
-the logical Program.
+Both states give `00` or `11` with equal probability. Their state vectors are
+\((|00\rangle + |11\rangle)/\sqrt{2}\) and
+\((|00\rangle - |11\rangle)/\sqrt{2}\). To distinguish them, we need to
+measure in another basis.
 
-Flat basis indices use `state_result.metadata["state_axes"]` from most to
-least significant. With public dimensions `(d0, ..., d_last)`, ordinary
-`state.reshape(d0, ..., d_last)` uses C order. For two qubits, `|10>` is flat
-index 2 and `|01>` is index 1.
+## Calculate correlations
 
-## What transformation did the Program implement?
+A Pauli measurement along the X or Z axis has outcomes `+1` and `-1`.
+For Z, `|0>` corresponds to `+1` and `|1>` to `-1`.
+`ZZ` measures the product of the two qubits' Z outcomes; `XX` does the same
+along X. An expectation of `+1` means the outcomes always agree, while `-1`
+means they are always opposite.
 
-An unmeasured coherent Program can itself be the object of study. Running it
-with the unitary method returns a matrix whose first column is the state that
-the Program prepares from `|00>`:
+Pass a list of observables to calculate both correlations in one request:
 
 ```pycon
->>> unitary = (
-...     fq.simulator.Simulator(method="unitary", runtime="numpy")
-...     .run(bell)
-...     .result()
-...     .get_unitary()
-... )
->>> np.allclose(unitary[:, 0], state)
-True
-```
-
-Use this route for a small coherent block whose complete action matters. A
-super-operator extends the idea to complete channels at substantially greater
-cost.
-
-## What physical quantity do I care about?
-
-Counts are indirect when the answer is already an expectation value such as a
-correlation or magnetization. [`Estimator`][fatqat.Estimator] evolves the
-unmeasured Program through a backend and evaluates an
-[`Observable`][fatqat.Observable] on the resulting state:
-
-```pycon
->>> estimator = fq.Estimator(
-...     fq.simulator.Simulator(method="statevector", runtime="numpy")
-... )
 >>> zz = fq.Observable([("ZZ", 1.0)])
->>> z_on_qubit_zero = fq.Observable([("ZI", 1.0)])
->>> exact = estimator.run(bell, [zz, z_on_qubit_zero]).result()
->>> np.round(exact.get_expectation(), 6).tolist()
-[1.0, 0.0]
+>>> xx = fq.Observable([("XX", 1.0)])
+>>> estimator = fq.Estimator(backend)
+>>> bell_result = estimator.run(bell, [zz, xx], shots=0).result()
+>>> flipped_result = estimator.run(phase_flipped, [zz, xx], shots=0).result()
+>>> np.round(bell_result.get_expectation(), 6).tolist()
+[1.0, 1.0]
+>>> np.round(flipped_result.get_expectation(), 6).tolist()
+[1.0, -1.0]
 ```
 
-The Bell pair is perfectly correlated, so `<ZZ> = 1`. Either individual qubit
-is balanced between zero and one, so `<Z_0> = 0`. Observable labels run in
-public qubit order: the leftmost character acts on qubit 0.
+The results follow the order `[zz, xx]`. Both states have `ZZ = 1`: their Z
+outcomes always agree. The `XX` values distinguish them. X outcomes always
+agree for the original Bell state and are always opposite for the
+phase-flipped state.
 
-By default, Estimator calculates an exact value from the final state. A
-positive shot count instead shows the statistical precision of a finite-shot
-request:
+Each tuple in an `Observable` contains a Pauli label and its real coefficient.
+For example, `("ZZ", 1.0)` represents Z on both qubits with coefficient 1.
+Labels follow qubit order from left to right, and `I` is the identity:
+`ZI` measures Z on qubit 0 alone. To calculate a weighted sum, such as an
+energy, include its terms in the same `Observable`.
+
+By default, `Estimator.run` uses `shots=0` to calculate the expectation
+directly from the state. The Program must be unmeasured; the estimator adds
+the required measurements when you request sampling.
+
+## Estimate from samples
+
+Set `shots` to a positive integer to estimate an expectation from sampled
+measurements. For `ZI` on the original Bell state, each shot gives `+1` or
+`-1` with equal probability. The exact expectation is zero, but a finite
+sample usually gives a small nonzero mean:
 
 ```pycon
+>>> zi = fq.Observable([("ZI", 1.0)])
+>>> exact = estimator.run(bell, zi, shots=0).result()
+>>> round(float(exact.get_expectation()), 4)
+0.0
 >>> sampled = estimator.run(
 ...     bell,
-...     z_on_qubit_zero,
+...     zi,
 ...     shots=400,
 ...     simulation_config={"seed": 7},
 ... ).result()
->>> bool(abs(sampled.get_expectation()) < 0.2)
-True
->>> sampled.get_standard_error() > 0.0
-True
+>>> round(float(sampled.get_expectation()), 4)
+-0.045
+>>> round(float(sampled.get_standard_error()), 4)
+0.05
 ```
 
-The estimate fluctuates around zero, and `get_standard_error()` reports its
-standard error. Increase the shots when statistical precision—not state
-evolution—is the limiting factor.
+For a single observable, `get_expectation()` and `get_standard_error()` each
+return a scalar. This run gives an estimate of `-0.045` with a standard error
+of about `0.05`. The standard error describes the expected spread of estimates
+if you repeated the run with the same number of shots.
 
-For formal state-axis, operator-vectorization, and observable-shape contracts,
-use the [Result](../api/result.md), [Simulator](../api/simulator.md), and
-[Estimator](../api/estimator.md) references.
+Increase `shots` for better precision. The plot below shows estimates from
+100 to 6,400 shots, with error bars extending one standard error above and
+below each estimate:
 
-The next question is often whether that answer survives realistic errors.
-[Compare the same Program ideally and noisily](ideal-and-noisy.md) changes the
-execution model while leaving the Bell Program untouched.
+![Estimates of ZI are plotted against increasing shot counts with one-standard-error bars that shrink around the exact expectation of zero.](../assets/generated/guide/observable-uncertainty.png)
+
+??? example "Reproduce this figure"
+
+    ```python
+    import matplotlib.pyplot as plt
+    import fatqat as fq
+    import fatqat.operations as ops
+
+    bell = fq.Program(2)
+    bell.add(ops.H, 0)
+    bell.add(ops.CX, (0, 1))
+    estimator = fq.Estimator(
+        fq.simulator.Simulator(method="statevector", runtime="numpy")
+    )
+    zi = fq.Observable([("ZI", 1.0)])
+    exact = estimator.run(bell, zi, shots=0).result().get_expectation()
+
+    shot_counts = [100, 400, 1600, 6400]
+    estimates = []
+    standard_errors = []
+    for index, shots in enumerate(shot_counts):
+        result = estimator.run(
+            bell, zi, shots=shots, simulation_config={"seed": 7 + index}
+        ).result()
+        estimates.append(result.get_expectation())
+        standard_errors.append(result.get_standard_error())
+
+    figure, axis = plt.subplots(figsize=(6.4, 3.6))
+    axis.errorbar(
+        shot_counts, estimates, yerr=standard_errors,
+        fmt="o", capsize=4, label="Estimate with one standard error",
+    )
+    axis.axhline(exact, color="C1", linestyle="--", label="Exact expectation")
+    axis.set(xscale="log", xlabel="Shots", ylabel=r"$\langle Z_0 \rangle$")
+    axis.set_xticks(shot_counts, [str(shots) for shots in shot_counts])
+    axis.legend()
+    axis.grid(alpha=0.25)
+    figure.tight_layout()
+    plt.show()
+    ```
+
+Quadrupling the shots roughly halves the standard error. Individual estimates
+still fluctuate, so a larger sample can give a value farther from zero.
+The exact value can also fall outside a one-standard-error bar.
+
+Circuit noise can change the expectation itself. Configure noise on the
+estimator's backend as described in [Ideal and noisy runs](ideal-and-noisy.md).
+A density-matrix backend can calculate the expectation with noise channels
+directly; increasing the shot count improves the precision of a sampled
+estimate of that noisy expectation.
+
+See the [Estimator API](../api/estimator.md) for supported backends, observable
+construction, and run options.

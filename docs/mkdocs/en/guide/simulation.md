@@ -1,87 +1,128 @@
 # Simulate a quantum program
 
 Use the general-purpose [`Simulator`][fatqat.simulator.Simulator] to study
-logical circuit evolution without choosing a hardware profile or Hamiltonian.
-It applies the operations in a
-[`Program`][fatqat.Program] as written: it does not transpile, route, or attach
-device timing.
-
-One reusable rotation will carry us from a state calculation to sampled
-measurements and a parameter sweep.
-
-## Start from a reusable Program
-
-Keep the angle symbolic while you describe the computation. Binding creates a
-new Program, so the template remains available for other values:
+circuit behavior, with or without noise. Start here with an ideal single-qubit
+rotation: calculate its exact probabilities, sample measurement outcomes,
+then vary the rotation angle to see how the probabilities change.
 
 ```pycon
->>> import math
 >>> import numpy as np
 >>> import fatqat as fq
 >>> import fatqat.operations as ops
->>> theta = fq.Parameter("theta")
 >>> rotation = fq.Program(1, 1)
->>> rotation.add(ops.RY(theta), 0)
->>> bound = rotation.assign_parameters({theta: math.pi / 2})
+>>> rotation.add(ops.RY(np.pi / 2), 0)
 >>> backend = fq.simulator.Simulator(method="statevector", runtime="numpy")
->>> result = backend.run(bound).result()
->>> np.round(np.abs(result.get_statevector()) ** 2, 6).tolist()
+>>> result = backend.run(rotation).result()
+>>> state = result.get_statevector()
+>>> probabilities = np.abs(state) ** 2
+>>> np.round(probabilities, 6).tolist()
 [0.5, 0.5]
 ```
 
-`RY(pi / 2)` prepares equal probabilities for `|0>` and `|1>`. The Program has
-not been measured, so the natural answer is its final state. `runtime="numpy"`
-keeps this small example free of compilation startup; [Performance and
-scaling](performance.md) explains when to compare it with the Numba runtime.
+The statevector contains an amplitude for each basis state. Its squared
+magnitudes give the probabilities of measuring `0` and `1`: here, one half
+each. No measurements were sampled to obtain these probabilities. The
+classical bit declared by `Program(1, 1)` will hold the measurement outcome in
+the next example.
 
-Choose the representation for the output you need:
+`runtime="numpy"` avoids compilation startup for this small circuit.
+[Performance and scaling](performance.md) explains when to compare it with
+the Numba runtime.
 
-| If you need to know... | Start with |
-| --- | --- |
-| The pure state prepared by an ideal circuit | `method="statevector"` |
-| The exact mixed state after finite noise channels | `method="density_matrix"` |
-| The coherent transformation implemented by a small Program | `method="unitary"` |
-| The complete channel implemented by a small Program | `method="superop"` |
+## Choose a simulation method
 
-These are different views of logical evolution, not different ways to author
-the computation.
+Set `method` to choose how the simulator represents the state:
+
+- **`statevector`** represents a pure state. With noise, it samples individual
+  noise trajectories.
+- **`density_matrix`** represents a mixed state and applies noise channels
+  directly, without sampling trajectories.
+
+Use `unitary` or `superop` when you need the circuit's full transformation
+rather than its output state.
+
+For a worked example using a density matrix to study noise, see
+[Ideal and noisy runs](ideal-and-noisy.md).
 
 ## Measure a distribution
 
-To see the outcomes an experiment would report, copy the bound Program, append
-a measurement, and request repeated shots:
+An exact probability of one half does not mean every set of measurements
+splits evenly. Copy the rotation Program and add a measurement into its
+classical bit. Each shot runs the circuit from its initial state and produces
+one outcome:
 
 ```pycon
->>> measured = bound.copy()
+>>> measured = rotation.copy()
 >>> measured.measure(0, 0)
->>> counts = backend.run(
+>>> measured_result = backend.run(
 ...     measured,
 ...     shots=200,
 ...     simulation_config={"seed": 7},
-... ).result().get_counts()
->>> sum(counts.values())
-200
->>> set(counts) <= {"0", "1"}
-True
+... ).result()
+>>> counts = measured_result.get_counts()
+>>> counts
+{'0': 94, '1': 106}
 ```
 
-The two outcomes fluctuate around equal frequency. The seed makes this run
-repeatable, but code should normally test the physics—allowed outcomes and
-total shots—rather than one exact random dictionary. See [Ask questions of a
-run](interpret-results.md) for count order and for choosing among the answers
-stored in a Result.
+The counts record how many shots produced each outcome. Divide them by the
+number of shots to obtain the observed frequencies. These fluctuate around
+the exact probabilities because measurement is sampled, even though the
+circuit has no noise. More shots generally reduce the sampling fluctuations;
+they do not change the underlying probabilities. The seed makes this example
+repeatable.
+
+[`Result.draw()`][fatqat.Result.draw] can display the counts as frequencies.
+The dashed line below marks the exact probability for both outcomes:
+
+![A histogram of 200 shots shows outcome frequencies close to, but on opposite sides of, the dashed exact-probability line at one half.](../assets/generated/guide/simulation-measurements.png)
+
+??? example "Reproduce this figure"
+
+    ```python
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import fatqat as fq
+    import fatqat.operations as ops
+
+    rotation = fq.Program(1, 1)
+    rotation.add(ops.RY(np.pi / 2), 0)
+    backend = fq.simulator.Simulator(method="statevector", runtime="numpy")
+    state = backend.run(rotation).result().get_statevector()
+    exact_probability = abs(state[0]) ** 2
+
+    measured = rotation.copy()
+    measured.measure(0, 0)
+    result = backend.run(
+        measured, shots=200, simulation_config={"seed": 7}
+    ).result()
+
+    figure, axis = plt.subplots(figsize=(6.2, 3.4))
+    result.draw(stat="frequencies", ax=axis, title="200 shots of RY(pi/2)")
+    axis.axhline(
+        exact_probability, color="C1", linestyle="--", label="Exact probability"
+    )
+    axis.set_ylim(0.0, 0.65)
+    axis.legend()
+    figure.tight_layout()
+    plt.show()
+    ```
 
 ## Sweep without rebuilding
 
-[`run_sweep`][fatqat.simulator.Simulator.run_sweep] binds each row of values to
-the same Program structure. The program is validated and lowered once; each
-row then only rebuilds the matrices of the gates that hold parameters. Here the
-state itself is the useful answer, so no measurement or sampling is needed:
+How does the probability of `1` change with the rotation angle? Replace the
+fixed angle with a [`Parameter`][fatqat.Parameter], then use
+[`run_sweep`][fatqat.simulator.Simulator.run_sweep] to evaluate a list of angles
+without rebuilding the Program for each value. This is typically faster than
+separate `run` calls because the simulator reuses setup work across parameter
+values.
 
 ```pycon
+>>> theta = fq.Parameter("theta")
+>>> parameterized_rotation = fq.Program(1)
+>>> parameterized_rotation.add(ops.RY(theta), 0)
 >>> angles = np.linspace(0.0, 2.0 * np.pi, 9)
 >>> sweep = backend.run_sweep(
-...     rotation,
+...     parameterized_rotation,
 ...     {theta: angles},
 ...     result_config={"counts": False, "final_state": True},
 ... ).result()
@@ -92,7 +133,14 @@ state itself is the useful answer, so no measurement or sampling is needed:
 [0.0, 1.0, 0.0]
 ```
 
-The complete response curve makes the reuse visible:
+The mapping `{theta: angles}` supplies a value of `theta` for each run. The
+results follow the same order as `angles`. This Program has no measurements;
+each probability comes directly from a statevector, so the curve has no
+shot-sampling fluctuations.
+
+For this rotation, \(P(1) = \sin^2(\theta / 2)\). It rises from zero to one
+at \(\theta = \pi\), then returns to zero at \(2\pi\). The plot uses a finer
+angle grid to show that dependence:
 
 ![Probability of measuring one follows a smooth sine-squared curve as the RY angle is swept from zero to two pi.](../assets/generated/guide/simulation-1.png)
 
@@ -105,7 +153,7 @@ The complete response curve makes the reuse visible:
     import fatqat.operations as ops
 
     theta = fq.Parameter("theta")
-    rotation = fq.Program(1, 1)
+    rotation = fq.Program(1)
     rotation.add(ops.RY(theta), 0)
 
     angles = np.linspace(0.0, 2.0 * np.pi, 41)
@@ -135,9 +183,9 @@ The complete response curve makes the reuse visible:
     )
     ax.grid(alpha=0.25)
     fig.tight_layout()
+    plt.show()
     ```
 
-A sweep returns ordinary Results in input order. For accepted method and batch
-forms, see the [Simulator API](../api/simulator.md). Next, [Ask questions of
-a run](interpret-results.md) follows counts, states, maps, and expectation
-values through their shared Job and Result boundary.
+For more sweep options, see the [Simulator API](../api/simulator.md).
+Continue with [Estimate observables](interpret-results.md) to calculate
+correlations and understand the uncertainty of sampled estimates.

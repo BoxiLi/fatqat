@@ -30,11 +30,11 @@ index:
 # Change this list to choose the gallery order. Unlisted folders follow alphabetically.
 category_order:
   - circuits-and-entanglement
-  - pulse-control
   - error-correction
   - quantum-simulation
   - combinatorial-optimization
   - quantum-machine-learning
+  - pulse-control
 
 categories:
   circuits-and-entanglement:
@@ -43,12 +43,6 @@ categories:
       description: >-
         Construct and verify quantum gates and entangled states using mixed
         qubit-qutrit registers and reconfigurable atom-array connectivity.
-  pulse-control:
-    en:
-      title: Pulse control and calibration
-      description: >-
-        Design and calibrate control pulses, then check their action on quantum
-        states in transmon and Rydberg models.
   error-correction:
     en:
       title: Error correction
@@ -73,3 +67,9 @@ categories:
       description: >-
         Train parameterized circuits and search circuit structures for
         classification and regression with batched parameter sweeps.
+  pulse-control:
+    en:
+      title: Pulse control and calibration
+      description: >-
+        Design and calibrate control pulses, then check their action on quantum
+        states in transmon and Rydberg models.

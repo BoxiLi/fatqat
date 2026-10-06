@@ -311,11 +311,13 @@ def test_numba_process_workers_preserve_initial_state():
     assert parallel == serial
 
 
-def test_the_callers_array_is_not_evolved_in_place():
+@pytest.mark.parametrize("runtime", _RUNTIMES)
+@pytest.mark.parametrize("method", ["SV", "DM"])
+def test_the_callers_array_is_not_evolved_in_place(runtime, method):
     start = np.array([0, 0, 1, 0], dtype=complex)
     untouched = start.copy()
 
-    Simulator(method="SV").run(
+    Simulator(method=method, runtime=runtime).run(
         _cx_program(), shots=0, initial_state=start, result_config=_STATE_ONLY
     ).result()
 

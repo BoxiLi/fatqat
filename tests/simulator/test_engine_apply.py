@@ -1,8 +1,14 @@
 """Tests statevector simulator initialization, gate application, and state export."""
 
 import numpy as np
+import pytest
 
-from fatqat.simulator._engine.np import NumpySVEngine
+from fatqat.simulator._engine.np import (
+    NumpySVEngine,
+    NumpyDMEngine,
+    NumpyUnitaryEngine,
+    NumpySuperopEngine,
+)
 from fatqat._backends.steps import ApplyMatrixStep
 from fatqat.implementation.matrices import shift_matrix
 
@@ -57,12 +63,23 @@ def test_bell_state_h_then_cx():
     assert np.allclose(eng.export_state(), [1, 0, 0, 1] / np.sqrt(2))
 
 
-def test_export_state_returns_independent_copy():
-    eng = _engine(1)
+@pytest.mark.parametrize(
+    "engine_type",
+    [NumpySVEngine, NumpyDMEngine, NumpyUnitaryEngine, NumpySuperopEngine],
+)
+def test_export_state_returns_independent_copy(engine_type):
+    eng = engine_type()
+    eng.initialize((2,))
     first = eng.export_state()
+    expected = first.copy()
     first[0] = 999.0
     second = eng.export_state()
-    assert second[0] != 999.0
+    assert np.array_equal(second, expected)
+
+    saved = second.copy()
+    eng.apply(ApplyMatrixStep(matrix=_X, target_indices=(0,)))
+    eng.initialize((2, 2))
+    assert np.array_equal(second, saved)
 
 
 def test_swap_exchanges_two_qubits():

@@ -283,20 +283,27 @@ def test_atom_lifecycle_clears_deferred_measurements():
     assert facts.written_clbits == frozenset({0})
 
 
-def test_gate_before_put_executes_while_empty():
+@pytest.mark.parametrize("runtime", ["numpy", "numba"])
+def test_gate_before_put_executes_while_empty(runtime):
     program = Program(1, 1)
     program.add(ops.RX(np.pi), 0)  # native X-equivalent; skipped while empty
     program.add(ops.Put, 0)
     program.measure(0, 0)
 
+    backend = AtomArraySimulator(runtime=runtime)
     counts = (
-        AtomArraySimulator()
-        .run(program, shots=8, simulation_config={"seed": 0})
+        backend.run(program, shots=8, simulation_config={"seed": 0})
         .result()
         .get_counts()
     )
 
     assert counts == {"0": 8}
+
+    # The previous run left the atom loaded; the next run starts empty again.
+    empty = Program(1, 1)
+    empty.measure(0, 0)
+    counts = backend.run(empty, shots=8, simulation_config={"seed": 0})
+    assert counts.result().get_counts() == {"2": 8}
 
 
 def test_plain_simulator_rejects_atom_put():

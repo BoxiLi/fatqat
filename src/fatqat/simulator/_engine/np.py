@@ -87,6 +87,7 @@ from .._execution_contract import (
     _ExecutionPolicy as ExecutionPolicy,
 )
 from .base import MatrixEngine, _shot_seed_sequences
+from .state import ClassicalState
 
 # What `_sampled_unitary_branches` resolves a channel step to: branch
 # probabilities, unit-norm operators, identity flags - or None for a channel
@@ -245,10 +246,8 @@ class _NumpyMatrixEngine(MatrixEngine):
     ``probabilities``, ``collapse``, ``reset_subsystems`` and one class knob:
 
     - ``_state_field``: the request/result state field this engine populates
-      (``"statevector"`` or ``"density_matrix"``).
+      (``"statevector"``, ``"density_matrix"``, ``"unitary"`` or ``"superop"``).
     """
-
-    _state_field: str
 
     def initialize(
         self,
@@ -467,18 +466,28 @@ class _NumpyMatrixEngine(MatrixEngine):
         the state only through the interface methods (reset consumes rng only
         under statevector semantics).
 
+        Attach fresh classical state to the initialized evolution. Quantum
+        kernels can replace its buffer while classical reports and occupancy
+        remain available throughout this shot.
+
         ``initial_occupied`` is the atom simulator's per-shot starting
         occupancy, supplied at run initialization rather than as a plan step:
         ``None`` means every subsystem is present (the plain-backend default),
         while an explicit set seeds only those subsystems as occupied so
         `~fatqat.operations.Put` fills the rest.
         """
-        clbits = [0] * self._n_clbits
-        occupied = (
-            set(range(len(self._dims)))
-            if initial_occupied is None
-            else set(initial_occupied)
+        assert self._evolution_state is not None
+        classical = ClassicalState(
+            clbits=[0] * self._n_clbits,
+            occupied=(
+                set(range(len(self._dims)))
+                if initial_occupied is None
+                else set(initial_occupied)
+            ),
         )
+        self._evolution_state.classical = classical
+        clbits = classical.clbits
+        occupied = classical.occupied
         for step in plan:
             if isinstance(step, ApplyMatrixStep) and all(
                 t in occupied for t in step.target_indices

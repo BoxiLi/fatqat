@@ -11,6 +11,7 @@ from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
 )
+from .state import EvolutionState, QuantumState
 
 
 def _shot_seed_sequences(
@@ -28,6 +29,7 @@ class MatrixEngine(ABC):
     _supports_kernel_threads = False
     _thread_capacity = 1
     _supports_fusion = False
+    _state_field: str
 
     def __init__(
         self,
@@ -38,10 +40,29 @@ class MatrixEngine(ABC):
         self.name = name
         self.state_semantics = state_semantics
 
-        self._state: np.ndarray | None = None
+        self._evolution_state: EvolutionState | None = None
         self._dims: tuple[int, ...] = ()
         self._reversed_dims: tuple[int, ...] = ()
         self._n_clbits = 0
+
+    @property
+    def _state(self) -> np.ndarray | None:
+        """Forward existing kernel access to the single owned quantum buffer."""
+        if self._evolution_state is None:
+            return None
+        return self._evolution_state.quantum.buffer
+
+    @_state.setter
+    def _state(self, value: np.ndarray | None) -> None:
+        """Replace the quantum buffer without losing current classical state."""
+        if value is None:
+            self._evolution_state = None
+        elif self._evolution_state is None:
+            self._evolution_state = EvolutionState(
+                QuantumState(value, self._state_field)
+            )
+        else:
+            self._evolution_state.quantum.buffer = value
 
     @property
     def state(self) -> np.ndarray:

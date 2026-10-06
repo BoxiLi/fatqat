@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -7,7 +9,7 @@ from fatqat._backends.engine_contract import (
     _SimulationConfig,
 )
 from fatqat.simulator._execution_contract import (
-    _EngineCapabilities,
+    _KernelCapabilities,
     _ExecutionPolicy,
     _PlanFacts,
 )
@@ -117,6 +119,48 @@ def test_materialization_failure_belongs_to_the_job(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("operation", ["measurement", "condition"])
+@pytest.mark.parametrize("sweep", [False, True])
+def test_engine_classical_support_controls_early_validation(
+    monkeypatch, operation, sweep
+):
+    backend = Simulator("SV", runtime="numpy")
+    monkeypatch.setattr(backend._engine, "_trajectory_capabilities", None)
+    program = fq.Program(1, 1)
+    theta = fq.Parameter("theta")
+    if sweep:
+        program.add(ops.RX(theta), 0)
+    if operation == "measurement":
+        program.measure(0, 0)
+    else:
+        program.add(ops.X, 0, condition=(program.classical_registers[0][0], 0))
+
+    with pytest.raises(BackendValidationError, match="classical register"):
+        if sweep:
+            backend.run_sweep(program, {theta: [0.1, 0.2]})
+        else:
+            backend.run(program)
+
+
+@pytest.mark.parametrize("operation", ["reset", "channel"])
+def test_engine_quantum_support_controls_early_validation(monkeypatch, operation):
+    noise = fq.NoiseModel()
+    if operation == "channel":
+        noise.add(fq.noise.Depolarizing(p=0.1), operation=ops.X)
+    backend = Simulator("SV", runtime="numpy", noise=noise)
+    quantum = backend._engine.capabilities.quantum
+    monkeypatch.setattr(
+        backend._engine,
+        "_quantum_capabilities",
+        replace(quantum, supports_nonunitary=False),
+    )
+    program = fq.Program(1)
+    program.add(ops.Reset if operation == "reset" else ops.X, 0)
+
+    with pytest.raises(BackendValidationError, match="cannot execute"):
+        backend.run(program)
+
+
 def _facts(execution_shape):
     return _PlanFacts(
         execution_shape=execution_shape,
@@ -148,7 +192,7 @@ def _facts(execution_shape):
             _facts("operator"),
             False,
             True,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             False,
             1,
             None,
@@ -160,7 +204,7 @@ def _facts(execution_shape):
             _facts("operator"),
             False,
             True,
-            _EngineCapabilities(False, 1, False),
+            _KernelCapabilities(False, 1, False),
             False,
             1,
             None,
@@ -172,7 +216,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             None,
@@ -184,7 +228,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             False,
             64,
             None,
@@ -196,7 +240,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             False,
             8,
             None,
@@ -212,7 +256,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             None,
@@ -228,7 +272,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             None,
@@ -240,7 +284,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             None,
@@ -256,7 +300,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, True),
+            _KernelCapabilities(True, 8, True),
             False,
             64,
             None,
@@ -268,7 +312,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             None,
@@ -280,7 +324,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             None,
@@ -292,7 +336,7 @@ def _facts(execution_shape):
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             64,
             frozenset(),
@@ -363,7 +407,7 @@ def test_execution_policy_decision_table(
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             True,
             1,
             False,
@@ -375,7 +419,7 @@ def test_execution_policy_decision_table(
             _facts("single_pass"),
             False,
             True,
-            _EngineCapabilities(True, 1, False),
+            _KernelCapabilities(True, 1, False),
             False,
             1,
             False,
@@ -387,7 +431,7 @@ def test_execution_policy_decision_table(
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 1, False),
+            _KernelCapabilities(True, 1, False),
             True,
             64,
             False,
@@ -401,7 +445,7 @@ def test_execution_policy_decision_table(
             _facts("single_pass"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             False,
             64,
             False,
@@ -413,7 +457,7 @@ def test_execution_policy_decision_table(
             _facts("per_shot"),
             True,
             False,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             False,
             64,
             False,
@@ -427,7 +471,7 @@ def test_execution_policy_decision_table(
             _facts("per_shot"),
             True,
             True,
-            _EngineCapabilities(True, 8, False),
+            _KernelCapabilities(True, 8, False),
             False,
             64,
             False,

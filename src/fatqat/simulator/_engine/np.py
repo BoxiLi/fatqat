@@ -85,6 +85,8 @@ from ...result import _decode_engine_indices_to_clbit_rows, reduce_to_counts
 from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
+    _QuantumCapabilities,
+    _TrajectoryCapabilities,
 )
 from .base import MatrixEngine, _shot_seed_sequences
 from .state import ClassicalState
@@ -243,11 +245,13 @@ class _NumpyMatrixEngine(MatrixEngine):
 
     Owns local materialization and semantic execution through abstract kernels.
     Subclasses supply ``_allocate``, ``apply``, ``apply_channel``,
-    ``probabilities``, ``collapse``, ``reset_subsystems`` and one class knob:
-
-    - ``_state_field``: the request/result state field this engine populates
-      (``"statevector"``, ``"density_matrix"``, ``"unitary"`` or ``"superop"``).
+    ``probabilities``, ``collapse``, ``reset_subsystems`` and the quantum
+    capability declaration. Its representation names the request/result field.
     """
+
+    _trajectory_capabilities = _TrajectoryCapabilities(
+        classical_register=True, occupancy=True
+    )
 
     def initialize(
         self,
@@ -544,7 +548,9 @@ class _NumpyMatrixEngine(MatrixEngine):
 class NumpySVEngine(_NumpyMatrixEngine):
     """State-vector engine: evolves ``|psi>`` as a flat little-endian array."""
 
-    _state_field = "statevector"
+    _quantum_capabilities = _QuantumCapabilities(
+        "statevector", supports_nonunitary=True, nonunitary_is_stochastic=True
+    )
 
     def __init__(self, name: str = "numpy-sv"):
         super().__init__(name, state_semantics="sv")
@@ -695,7 +701,9 @@ class NumpySVEngine(_NumpyMatrixEngine):
 class NumpyDMEngine(_NumpyMatrixEngine):
     """Density-matrix engine: evolves ``rho`` as a ``(size, size)`` matrix."""
 
-    _state_field = "density_matrix"
+    _quantum_capabilities = _QuantumCapabilities(
+        "density_matrix", supports_nonunitary=True, nonunitary_is_stochastic=False
+    )
 
     def __init__(self, name: str = "numpy-dm"):
         super().__init__(name, state_semantics="dm")
@@ -820,6 +828,8 @@ class _NumpyOperatorEngine(_NumpyMatrixEngine):
     the identity operator; the sampling kernels are unsupported.
     """
 
+    _trajectory_capabilities = None
+
     def execute_local(
         self,
         context: ExecutionContext,
@@ -895,7 +905,12 @@ class NumpyUnitaryEngine(  # pylint: disable=abstract-method
     the statevector kernel run on ``size`` columns at once.
     """
 
-    _state_field = "unitary"
+    _quantum_capabilities = _QuantumCapabilities(
+        # Retain the SV branch classification; non-unitary plans are rejected.
+        "unitary",
+        supports_nonunitary=False,
+        nonunitary_is_stochastic=True,
+    )
 
     def __init__(self, name: str = "numpy-unitary"):
         super().__init__(name)
@@ -932,7 +947,9 @@ class NumpySuperopEngine(  # pylint: disable=abstract-method
     convention.
     """
 
-    _state_field = "superop"
+    _quantum_capabilities = _QuantumCapabilities(
+        "superop", supports_nonunitary=True, nonunitary_is_stochastic=False
+    )
 
     def __init__(self, name: str = "numpy-superop"):
         super().__init__(name)

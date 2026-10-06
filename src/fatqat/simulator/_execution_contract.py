@@ -27,12 +27,53 @@ class _PlanFacts:
 
 
 @dataclass(frozen=True, slots=True)
-class _EngineCapabilities:
-    """Static numerical support exposed without inspecting a plan."""
+class _QuantumCapabilities:
+    """Representation semantics, independent of numerical runtime."""
+
+    representation: Literal["statevector", "density_matrix", "unitary", "superop"]
+    supports_nonunitary: bool
+    nonunitary_is_stochastic: bool
+
+    @property
+    def is_operator(self) -> bool:
+        """Whether evolution computes a map rather than a state under it."""
+        return self.representation in {"unitary", "superop"}
+
+
+@dataclass(frozen=True, slots=True)
+class _TrajectoryCapabilities:
+    """Classical components supported by the complete trajectory executor."""
+
+    classical_register: bool
+    occupancy: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _KernelCapabilities:
+    """Numerical controls, separate from supported trajectory state."""
 
     supports_kernel_threads: bool
     thread_capacity: int
     supports_fusion: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _EngineCapabilities:
+    """Engine-owned static support; no evolving storage or plan allocation."""
+
+    quantum: _QuantumCapabilities
+    trajectory: _TrajectoryCapabilities | None
+    kernels: _KernelCapabilities
+
+    @property
+    def supports_classical_register(self) -> bool:
+        """Whether measurement reports and conditions have a register."""
+        return self.trajectory is not None and self.trajectory.classical_register
+
+    @property
+    def supports_occupancy(self) -> bool:
+        """Whether an execution may own explicit carrier occupancy."""
+        return self.trajectory is not None and self.trajectory.occupancy
 
 
 @dataclass(frozen=True, slots=True)

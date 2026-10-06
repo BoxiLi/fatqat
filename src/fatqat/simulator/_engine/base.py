@@ -8,6 +8,9 @@ from ..._backends.engine_contract import RawResult
 from ..._backends.steps import ApplyMatrixStep, ResolvedStep
 from .._execution_contract import (
     _EngineCapabilities,
+    _KernelCapabilities,
+    _QuantumCapabilities,
+    _TrajectoryCapabilities,
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
 )
@@ -26,10 +29,9 @@ class MatrixEngine(ABC):
     Abstract base class and interface contract for all engines.
     """
 
-    _supports_kernel_threads = False
-    _thread_capacity = 1
-    _supports_fusion = False
-    _state_field: str
+    _quantum_capabilities: _QuantumCapabilities
+    _trajectory_capabilities: _TrajectoryCapabilities | None = None
+    _kernel_capabilities = _KernelCapabilities(False, 1, False)
 
     def __init__(
         self,
@@ -79,12 +81,17 @@ class MatrixEngine(ABC):
         return len(self._dims)
 
     @property
+    def _state_field(self) -> str:
+        """Use the declared representation for evolving state and results."""
+        return self._quantum_capabilities.representation
+
+    @property
     def capabilities(self) -> _EngineCapabilities:
-        """Return static numerical support without initializing the engine."""
+        """Return supported quantum, classical, and numerical execution."""
         return _EngineCapabilities(
-            supports_kernel_threads=self._supports_kernel_threads,
-            thread_capacity=self._thread_capacity,
-            supports_fusion=self._supports_fusion,
+            quantum=self._quantum_capabilities,
+            trajectory=self._trajectory_capabilities,
+            kernels=self._kernel_capabilities,
         )
 
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:

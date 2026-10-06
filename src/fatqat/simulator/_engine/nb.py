@@ -121,6 +121,7 @@ from ...result import reduce_to_counts
 from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
+    _KernelCapabilities,
 )
 from .base import _shot_seed_sequences
 from .np import (
@@ -1716,8 +1717,7 @@ def _plan_compilable(plan: Sequence[ResolvedStep]) -> bool:
 class NumbaSVEngine(NumpySVEngine):
     """State-vector engine with Numba-jitted numeric kernels."""
 
-    _supports_kernel_threads = True
-    _thread_capacity = _MAX_THREADS
+    _kernel_capabilities = _KernelCapabilities(True, _MAX_THREADS, False)
 
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
         """Return whether the compiled outer loop can encode this exact plan."""
@@ -2281,9 +2281,7 @@ class NumbaDMEngine(NumpyDMEngine):
     per plan step, key-aware for gates, content-scanned for channels.
     """
 
-    _supports_kernel_threads = True
-    _thread_capacity = _MAX_THREADS
-    _supports_fusion = True
+    _kernel_capabilities = _KernelCapabilities(True, _MAX_THREADS, True)
 
     def __init__(self, name: str = "numba-dm"):
         super().__init__(name)
@@ -2804,9 +2802,7 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
     Leaves supply `_operator_row_dims` and `_operator_payloads`.
     """
 
-    _supports_kernel_threads = True
-    _thread_capacity = _MAX_THREADS
-    _supports_fusion = True
+    _kernel_capabilities = _KernelCapabilities(True, _MAX_THREADS, True)
 
     def materialize_execution(
         self,

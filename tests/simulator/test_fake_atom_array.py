@@ -2,6 +2,8 @@
 connectivity, and the Put/loss atom lifecycle.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -304,6 +306,21 @@ def test_gate_before_put_executes_while_empty(runtime):
     empty.measure(0, 0)
     counts = backend.run(empty, shots=8, simulation_config={"seed": 0})
     assert counts.result().get_counts() == {"2": 8}
+
+
+def test_engine_without_occupancy_rejects_even_an_empty_site(monkeypatch):
+    backend = AtomArraySimulator(runtime="numpy")
+    trajectory = backend._engine.capabilities.trajectory
+    monkeypatch.setattr(
+        backend._engine,
+        "_trajectory_capabilities",
+        replace(trajectory, occupancy=False),
+    )
+    program = Program(1, 1)
+    program.measure(0, 0)
+
+    with pytest.raises(BackendValidationError, match="cannot track carrier occupancy"):
+        backend.run(program)
 
 
 def test_plain_simulator_rejects_atom_put():

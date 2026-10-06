@@ -7,7 +7,7 @@ import os
 from .._backends.engine_contract import _SimulationConfig as SimulationConfig
 from ..errors import BackendValidationError
 from ._execution_contract import (
-    _EngineCapabilities as EngineCapabilities,
+    _KernelCapabilities as KernelCapabilities,
     _ExecutionPolicy as ExecutionPolicy,
     _PlanFacts as PlanFacts,
 )
@@ -24,7 +24,7 @@ def _process_worker_ceiling(requested: int | None) -> int:
 
 
 def _explicit_thread_worker_ceiling(
-    requested: int | None, capabilities: EngineCapabilities
+    requested: int | None, capabilities: KernelCapabilities
 ) -> int:
     """Resolve a concrete ceiling for a required threaded axis."""
     return max(
@@ -37,7 +37,7 @@ def _explicit_thread_worker_ceiling(
 
 
 def _adaptive_thread_worker_ceiling(
-    requested: int | None, capabilities: EngineCapabilities
+    requested: int | None, capabilities: KernelCapabilities
 ) -> int | None:
     """Clamp an explicit ceiling while preserving an omitted caller mask."""
     if requested is None:
@@ -47,7 +47,7 @@ def _adaptive_thread_worker_ceiling(
 
 def _validate_execution_controls(
     simulation: SimulationConfig,
-    capabilities: EngineCapabilities,
+    capabilities: KernelCapabilities,
 ) -> None:
     """Reject plan-independent engine controls before lowering."""
     if (
@@ -118,7 +118,7 @@ def _should_probe_compiled_multi_shot(
 
 def _adaptive_kernel_policy(
     simulation: SimulationConfig,
-    capabilities: EngineCapabilities,
+    capabilities: KernelCapabilities,
 ) -> tuple[str, int | None]:
     """Resolve public kernel auto without reading the active caller mask."""
     if (
@@ -139,7 +139,7 @@ def _resolve_execution_policy(
     facts: PlanFacts,
     counts_requested: bool,
     state_requested: bool,
-    capabilities: EngineCapabilities,
+    capabilities: KernelCapabilities,
     compiled_multi_shot_compatible: bool,
     shots: int,
     initial_occupied: frozenset[int] | None,

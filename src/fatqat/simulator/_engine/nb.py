@@ -130,6 +130,7 @@ from .np import (
     NumpySVEngine,
     NumpyUnitaryEngine,
 )
+from .state import CompiledEvolutionState
 
 # Numba fixes the launch pool's capacity at import time. ``set_num_threads``
 # changes only the active mask, so policy ceilings clamp to this configured
@@ -1503,6 +1504,19 @@ def _reset_step(
     return state
 
 
+@njit(cache=True, inline="always")
+def _initialize_shot_state(start, state_size, custom_start, n_clbits):
+    """Allocate one shot's quantum and classical buffers without sharing them."""
+    if custom_start:
+        # A supplied template must survive unchanged to seed every trajectory.
+        quantum = start.copy()
+    else:
+        # Construct |0...0> directly, without an O(D) template to copy.
+        quantum = np.zeros(state_size, dtype=np.complex128)
+        quantum[0] = 1.0 + 0.0j
+    return CompiledEvolutionState(quantum, np.zeros(n_clbits, dtype=np.int64))
+
+
 @njit(cache=True, parallel=True)
 def _run_shots_kernel(
     # per-step sequencer (one entry per plan step, in program order)
@@ -1569,7 +1583,7 @@ def _run_shots_kernel(
 ) -> np.ndarray:  # pragma: no cover - compiled by Numba
     """Run ``shots`` independent dynamic trajectories in parallel.
 
-    Each shot (a `prange` iteration) owns a private state and classical register
+    Each shot (a `prange` iteration) owns a local `CompiledEvolutionState`
     and interprets the compiled plan: conditioned gate application, projective
     measurement with readout confusion, conditioned reset, and conditioned channel
     noise. Uniforms are pre-drawn per shot in execution order (slice
@@ -1581,28 +1595,22 @@ def _run_shots_kernel(
     num_steps = step_kind.shape[0]
     results = np.zeros((shots, n_clbits), dtype=np.int64)
     for shot in prange(shots):  # pylint: disable=not-an-iterable
-        if custom_start:
-            # A caller-supplied state must survive unchanged to seed every
-            # trajectory, so each shot necessarily gets its own copy.
-            state = start.copy()
-        else:
-            # Keep the original zero-state fast path: initialize the private
-            # shot buffer directly instead of first reading a full template
-            # only to copy it.
-            state = np.zeros(state_size, dtype=np.complex128)
-            state[0] = 1.0 + 0.0j
-        clbits = np.zeros(n_clbits, dtype=np.int64)
+        evolution = _initialize_shot_state(start, state_size, custom_start, n_clbits)
         draw = shot * max_draws
 
         for st in range(num_steps):
             kind = step_kind[st]
             passes = _condition_passes(
-                clbits, cond_clbit, cond_value, step_cond_ptr[st], step_cond_len[st]
+                evolution.classical,
+                cond_clbit,
+                cond_value,
+                step_cond_ptr[st],
+                step_cond_len[st],
             )
             if kind == 1:  # measurement (unconditional)
-                state, draw = _measure_step(
-                    state,
-                    clbits,
+                quantum, draw = _measure_step(
+                    evolution.quantum,
+                    evolution.classical,
                     step_data[st],
                     me_ptr,
                     me_len,
@@ -1614,9 +1622,10 @@ def _run_shots_kernel(
                     uniforms,
                     draw,
                 )
+                evolution = CompiledEvolutionState(quantum, evolution.classical)
             elif kind == 0 and passes:  # gate
                 _apply_step(
-                    state,
+                    evolution.quantum,
                     step_data[st],
                     ap_mat_ptr,
                     ap_dim,
@@ -1633,8 +1642,8 @@ def _run_shots_kernel(
                     state_size,
                 )
             elif kind == 2 and passes:  # reset
-                state = _reset_step(
-                    state,
+                quantum = _reset_step(
+                    evolution.quantum,
                     step_data[st],
                     rs_ptr,
                     rs_len,
@@ -1642,10 +1651,11 @@ def _run_shots_kernel(
                     rs_dim,
                     uniforms[draw],
                 )
+                evolution = CompiledEvolutionState(quantum, evolution.classical)
                 draw += 1
             elif kind == 3 and passes:  # channel noise (applied in place)
                 _channel_step(
-                    state,
+                    evolution.quantum,
                     step_data[st],
                     ch_kra_ptr,
                     ch_num_kraus,
@@ -1668,7 +1678,7 @@ def _run_shots_kernel(
                 draw += 1
 
         for c in range(n_clbits):
-            results[shot, c] = clbits[c]
+            results[shot, c] = evolution.classical[c]
     return results
 
 

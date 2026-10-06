@@ -560,6 +560,8 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
     counts = {}
     for cls in (NumpySVEngine, NumbaSVEngine):
         simulator = cls()
+        start = np.array([0, 1], dtype=complex)
+        untouched = start.copy()
         context = _ExecutionContext(
             execution_shape=facts.execution_shape,
             request=request,
@@ -567,7 +569,7 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
             n_clbits=1,
             shots=shots,
             seed=7,
-            initial_state=None,
+            initial_state=start,
             initial_occupied=None,
         )
         policy = _ExecutionPolicy(
@@ -585,6 +587,11 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
             policy=policy,
         )
         raw = simulator.execute_local(context, payload, policy)
+        assert raw.state is None
+        assert np.array_equal(start, untouched)
+        if cls is NumbaSVEngine:
+            with pytest.raises(RuntimeError, match="initialized"):
+                simulator.export_state()
         counts[cls.__name__] = dict(
             zip(
                 (tuple(key) for key in raw.outcome_keys.tolist()),

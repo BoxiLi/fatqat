@@ -1,10 +1,11 @@
-"""Mutable state owned by one active reference-path engine evolution.
+"""State owned by one active engine evolution or compiled shot.
 
 System configuration, execution policy, RNGs, and numerical caches live outside
-these records. Compiled multi-shot kernels retain their own local arrays.
+these records. Compiled multi-shot kernels own their state locally per shot.
 """
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import numpy as np
 
@@ -31,3 +32,14 @@ class EvolutionState:
 
     quantum: QuantumState
     classical: ClassicalState | None = None
+
+
+class CompiledEvolutionState(NamedTuple):
+    """Quantum and classical arrays owned by one compiled statevector shot.
+
+    This path assumes full occupancy. Replacing the record swaps array
+    references without copying data or discarding classical digits.
+    """
+
+    quantum: np.ndarray
+    classical: np.ndarray

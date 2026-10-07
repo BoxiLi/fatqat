@@ -122,6 +122,8 @@ from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
     _KernelCapabilities,
+    _QuantumCapabilities,
+    _TrajectoryCapabilities,
 )
 from .base import _shot_seed_sequences
 from .np import (
@@ -1717,7 +1719,17 @@ def _plan_compilable(plan: Sequence[ResolvedStep]) -> bool:
 class NumbaSVEngine(NumpySVEngine):
     """State-vector engine with Numba-jitted numeric kernels."""
 
-    _kernel_capabilities = _KernelCapabilities(True, _MAX_THREADS, False)
+    _quantum_capabilities = _QuantumCapabilities(
+        "statevector", supports_nonunitary=True, nonunitary_is_stochastic=True
+    )
+    _trajectory_capabilities = _TrajectoryCapabilities(
+        classical_register=True, occupancy=True
+    )
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=True,
+        thread_capacity=_MAX_THREADS,
+        supports_fusion=False,
+    )
 
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
         """Return whether the compiled outer loop can encode this exact plan."""
@@ -2269,9 +2281,8 @@ class NumbaDMEngine(NumpyDMEngine):
     """Density-matrix engine with Numba-jitted, key-driven numeric kernels.
 
     Overrides the numeric kernels of `NumpyDMEngine` and materializes the
-    optional gate/channel rewrite once. Capability classification,
-    ``measure_subsystems``, and fast/per-shot orchestration are inherited and
-    route through the Numba kernels under the resolved thread scope.
+    optional gate/channel rewrite once. Inherited measurement and execution
+    helpers call the Numba kernels within the resolved thread scope.
     ``reset_subsystems`` stays the inherited NumPy partial-trace channel (see
     the module docstring).
 
@@ -2281,7 +2292,15 @@ class NumbaDMEngine(NumpyDMEngine):
     per plan step, key-aware for gates, content-scanned for channels.
     """
 
-    _kernel_capabilities = _KernelCapabilities(True, _MAX_THREADS, True)
+    _quantum_capabilities = _QuantumCapabilities(
+        "density_matrix", supports_nonunitary=True, nonunitary_is_stochastic=False
+    )
+    _trajectory_capabilities = _TrajectoryCapabilities(
+        classical_register=True, occupancy=True
+    )
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=True, thread_capacity=_MAX_THREADS, supports_fusion=True
+    )
 
     def __init__(self, name: str = "numba-dm"):
         super().__init__(name)
@@ -2799,10 +2818,9 @@ def _fuse_operator_payloads(payloads: list[tuple], dims: Sequence[int]) -> list[
 class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
     """Compiled whole-plan execution for the Numba operator engines.
 
-    Leaves supply `_operator_row_dims` and `_operator_payloads`.
+    Leaves declare their capabilities and supply `_operator_row_dims` and
+    `_operator_payloads`.
     """
-
-    _kernel_capabilities = _KernelCapabilities(True, _MAX_THREADS, True)
 
     def materialize_execution(
         self,
@@ -2889,6 +2907,17 @@ class NumbaUnitaryEngine(  # pylint: disable=too-many-ancestors
     the plain system dims; every step is a gate.
     """
 
+    _quantum_capabilities = _QuantumCapabilities(
+        # Retain the SV branch classification; non-unitary plans are rejected.
+        "unitary",
+        supports_nonunitary=False,
+        nonunitary_is_stochastic=True,
+    )
+    _trajectory_capabilities = _TrajectoryCapabilities()
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=True, thread_capacity=_MAX_THREADS, supports_fusion=True
+    )
+
     def __init__(self, name: str = "numba-unitary"):
         super().__init__(name)
 
@@ -2952,6 +2981,14 @@ class NumbaSuperopEngine(  # pylint: disable=too-many-ancestors
     into the doubled ``bra + ket`` dims. Every step - gate, channel, or reset -
     resolves to one super-operator on the combined ket+bra super-target.
     """
+
+    _quantum_capabilities = _QuantumCapabilities(
+        "superop", supports_nonunitary=True, nonunitary_is_stochastic=False
+    )
+    _trajectory_capabilities = _TrajectoryCapabilities()
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=True, thread_capacity=_MAX_THREADS, supports_fusion=True
+    )
 
     def __init__(self, name: str = "numba-superop"):
         super().__init__(name)

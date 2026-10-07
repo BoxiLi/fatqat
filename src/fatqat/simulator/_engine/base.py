@@ -29,9 +29,10 @@ class MatrixEngine(ABC):
     Abstract base class and interface contract for all engines.
     """
 
+    # Concrete engines declare all support; numeric/execution helpers may be shared.
     _quantum_capabilities: _QuantumCapabilities
-    _trajectory_capabilities: _TrajectoryCapabilities | None = None
-    _kernel_capabilities = _KernelCapabilities(False, 1, False)
+    _trajectory_capabilities: _TrajectoryCapabilities
+    _kernel_capabilities: _KernelCapabilities
 
     def __init__(
         self,

@@ -10,6 +10,7 @@ from fatqat.errors import UnsupportedOperationError
 from fatqat.noise import Loss, ReadoutConfusion
 from fatqat.observable import Observable
 from fatqat.simulator import AtomArraySimulator, Simulator
+from fatqat.simulator._execution_contract import _TrajectoryCapabilities
 
 
 class _ReversedAllocationSimulator(Simulator):
@@ -33,7 +34,9 @@ def test_estimator_remaps_logical_factors_through_engine_allocation():
 
 def test_classical_support_is_required_only_for_sampled_expectations(monkeypatch):
     backend = Simulator(runtime="numpy")
-    monkeypatch.setattr(backend._engine, "_trajectory_capabilities", None)
+    monkeypatch.setattr(
+        backend._engine, "_trajectory_capabilities", _TrajectoryCapabilities()
+    )
     estimator = fq.Estimator(backend)
     program = fq.Program(1)
     observable = Observable([("Z", 1.0)])

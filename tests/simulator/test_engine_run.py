@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from fatqat._backends.engine_contract import (
     _StateVectorResultRequest,
@@ -7,6 +8,7 @@ from fatqat._backends.steps import (
     ApplyMatrixStep,
     LossStep,
     MeasurementStep,
+    PutStep,
     ResetStep,
 )
 from fatqat.simulator._engine.np import NumpySVEngine
@@ -98,3 +100,47 @@ def test_engine_fast_counts_and_state_share_collapse_event():
     assert result.outcome_counts.tolist() == [1]
     assert np.isclose(abs(result.state[measured]), 1.0)
     assert np.count_nonzero(np.abs(result.state) > 1e-12) == 1
+
+
+@pytest.mark.parametrize("runtime", ["numpy", "numba"])
+def test_implicit_occupancy_loss_reload_and_feedback_start_fresh(runtime):
+    if runtime == "numba":
+        from fatqat.simulator._engine.nb import NumbaSVEngine
+
+        engine = NumbaSVEngine()
+    else:
+        engine = NumpySVEngine()
+    x = np.array([[0, 1], [1, 0]], dtype=complex)
+    plan = [
+        ApplyMatrixStep(x, (0,)),
+        PutStep((0,)),  # Implicitly full occupancy: Put must preserve |1>.
+        MeasurementStep((0,), (0,)),
+        LossStep((0,), p=1.0),
+        MeasurementStep((0,), (1,)),
+        PutStep((0,)),
+        ApplyMatrixStep(x, (0,), condition=((0, 1),)),
+        MeasurementStep((0,), (2,)),
+    ]
+    context = _context(
+        execution_shape="per_shot",
+        n_clbits=3,
+        shots=4,
+        request=_StateVectorResultRequest(counts=True, statevector=False),
+    )
+    policy = _ExecutionPolicy("serial", "serial", 1, False)
+
+    result = _run(engine, plan, context, policy=policy)
+
+    assert result.outcome_keys.tolist() == [[1, 2, 1]]
+    assert result.outcome_counts.tolist() == [4]
+
+    # Reusing the engine restores implicit occupancy and clears report digits.
+    reused = _run(engine, plan[:3], context, policy=policy)
+    assert reused.outcome_keys.tolist() == [[1, 0, 0]]
+    assert reused.outcome_counts.tolist() == [4]
+    assert result.outcome_keys.tolist() == [[1, 2, 1]]
+
+    # Unused declared registers still report zero without evolving any digits.
+    unwritten = _run(engine, [plan[0], LossStep((0,), p=0.0)], context, policy=policy)
+    assert unwritten.outcome_keys.tolist() == [[0, 0, 0]]
+    assert unwritten.outcome_counts.tolist() == [4]

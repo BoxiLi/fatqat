@@ -1,11 +1,11 @@
 """NumPy engines for the matrix backend family.
 
 `NumpySVEngine` (statevector) and `NumpyDMEngine` (density matrix) are the
-two *state* `MatrixEngine` implementations. They share static capabilities,
-one-time plan materialization, the fast single-evolution path, local per-shot
+two *state* `MatrixEngine` implementations. They share one-time plan
+materialization, the fast single-evolution path, local per-shot
 replay, ``initialize``, and ``measure_subsystems`` through
 `_NumpyMatrixEngine`. Each leaf class contributes only its numeric kernels
-(allocate / apply / probabilities / collapse / reset) and result field;
+(allocate / apply / probabilities / collapse / reset) and explicit capabilities;
 simulator-owned facts decide the semantic execution shape before this layer.
 
 `NumpyUnitaryEngine` and `NumpySuperopEngine` are the two *operator* engines:
@@ -85,11 +85,11 @@ from ...result import _decode_engine_indices_to_clbit_rows, reduce_to_counts
 from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
+    _KernelCapabilities,
     _QuantumCapabilities,
     _TrajectoryCapabilities,
 )
 from .base import MatrixEngine, _shot_seed_sequences
-from .state import ClassicalState
 
 # What `_sampled_unitary_branches` resolves a channel step to: branch
 # probabilities, unit-norm operators, identity flags - or None for a channel
@@ -166,10 +166,13 @@ def _measured_keep_mask(
 
 
 def _condition_matches(
-    condition: tuple[tuple[int, int], ...] | None, clbits: list[int]
+    condition: tuple[tuple[int, int], ...] | None, clbits: list[int] | None
 ) -> bool:
     """Return whether a lowered feedforward condition passes."""
-    return condition is None or all(clbits[c] == v for c, v in condition)
+    if not condition:
+        return True
+    assert clbits is not None, "feedforward requires initialized classical digits"
+    return all(clbits[c] == v for c, v in condition)
 
 
 def _map_physical_digit(physical_digit: int, reported_digit_map) -> int:
@@ -245,13 +248,9 @@ class _NumpyMatrixEngine(MatrixEngine):
 
     Owns local materialization and semantic execution through abstract kernels.
     Subclasses supply ``_allocate``, ``apply``, ``apply_channel``,
-    ``probabilities``, ``collapse``, ``reset_subsystems`` and the quantum
-    capability declaration. Its representation names the request/result field.
+    ``probabilities``, ``collapse``, ``reset_subsystems`` and their
+    capability declarations. The quantum representation names the result field.
     """
-
-    _trajectory_capabilities = _TrajectoryCapabilities(
-        classical_register=True, occupancy=True
-    )
 
     def initialize(
         self,
@@ -470,7 +469,7 @@ class _NumpyMatrixEngine(MatrixEngine):
         the state only through the interface methods (reset consumes rng only
         under statevector semantics).
 
-        Attach fresh classical state to the initialized evolution. Quantum
+        Populate the initialized evolution's classical container. Quantum
         kernels can replace its buffer while classical reports and occupancy
         remain available throughout this shot.
 
@@ -481,41 +480,44 @@ class _NumpyMatrixEngine(MatrixEngine):
         `~fatqat.operations.Put` fills the rest.
         """
         assert self._evolution_state is not None
-        classical = ClassicalState(
-            clbits=[0] * self._n_clbits,
-            occupied=(
-                set(range(len(self._dims)))
-                if initial_occupied is None
-                else set(initial_occupied)
-            ),
-        )
-        self._evolution_state.classical = classical
+        classical = self._evolution_state.classical
+        classical.clbits = None
+        classical.occupied = None if initial_occupied is None else set(initial_occupied)
         clbits = classical.clbits
         occupied = classical.occupied
         for step in plan:
-            if isinstance(step, ApplyMatrixStep) and all(
-                t in occupied for t in step.target_indices
+            if clbits is None and (
+                isinstance(step, MeasurementStep) or step.condition is not None
+            ):
+                clbits = [0] * self._n_clbits
+                classical.clbits = clbits
+            if isinstance(step, ApplyMatrixStep) and (
+                occupied is None or all(t in occupied for t in step.target_indices)
             ):
                 if _condition_matches(step.condition, clbits):
                     self.apply(step)
-            elif isinstance(step, ApplyChannelStep) and all(
-                t in occupied for t in step.target_indices
+            elif isinstance(step, ApplyChannelStep) and (
+                occupied is None or all(t in occupied for t in step.target_indices)
             ):
                 if _condition_matches(step.condition, clbits):
                     self.apply_channel(step, rng)
             elif isinstance(step, LossStep):
                 if _condition_matches(step.condition, clbits):
+                    if occupied is None:
+                        occupied = set(range(len(self._dims)))
+                        classical.occupied = occupied
                     for index in step.target_indices:
                         if index in occupied and rng.random() < step.p:
                             occupied.discard(index)
                             self.reset_subsystems([index], rng)
             elif isinstance(step, PutStep):
-                if _condition_matches(step.condition, clbits):
+                if _condition_matches(step.condition, clbits) and occupied is not None:
                     for index in step.target_indices:
                         if index not in occupied:
                             occupied.add(index)
                             self.reset_subsystems([index], rng)
             elif isinstance(step, MeasurementStep):
+                assert clbits is not None, "measurement requires classical digits"
                 bits = self.measure_subsystems(step.measured_indices, rng)
                 confusions = step.confusions or (None,) * len(bits)
                 maps = step.reported_digit_maps or (None,) * len(bits)
@@ -528,18 +530,19 @@ class _NumpyMatrixEngine(MatrixEngine):
                     maps,
                     confusions,
                 ):
-                    if m not in occupied:
+                    if occupied is not None and m not in occupied:
                         clbits[c] = ERASURE_DIGIT
                     else:
                         clbits[c] = _report_digit(
                             _map_physical_digit(bit, reported_map), confusion, rng
                         )
             elif isinstance(step, ResetStep):
-                if _condition_matches(step.condition, clbits) and all(
-                    t in occupied for t in step.reset_indices
+                if _condition_matches(step.condition, clbits) and (
+                    occupied is None or all(t in occupied for t in step.reset_indices)
                 ):
                     self.reset_subsystems(step.reset_indices, rng)
-        return tuple(clbits)
+        # Unwritten report digits are zero even when no register was needed.
+        return tuple(clbits) if clbits is not None else (0,) * self._n_clbits
 
 
 # --- statevector engine ---
@@ -550,6 +553,12 @@ class NumpySVEngine(_NumpyMatrixEngine):
 
     _quantum_capabilities = _QuantumCapabilities(
         "statevector", supports_nonunitary=True, nonunitary_is_stochastic=True
+    )
+    _trajectory_capabilities = _TrajectoryCapabilities(
+        classical_register=True, occupancy=True
+    )
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
 
     def __init__(self, name: str = "numpy-sv"):
@@ -704,6 +713,12 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     _quantum_capabilities = _QuantumCapabilities(
         "density_matrix", supports_nonunitary=True, nonunitary_is_stochastic=False
     )
+    _trajectory_capabilities = _TrajectoryCapabilities(
+        classical_register=True, occupancy=True
+    )
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
+    )
 
     def __init__(self, name: str = "numpy-dm"):
         super().__init__(name, state_semantics="dm")
@@ -828,8 +843,6 @@ class _NumpyOperatorEngine(_NumpyMatrixEngine):
     the identity operator; the sampling kernels are unsupported.
     """
 
-    _trajectory_capabilities = None
-
     def execute_local(
         self,
         context: ExecutionContext,
@@ -911,6 +924,10 @@ class NumpyUnitaryEngine(  # pylint: disable=abstract-method
         supports_nonunitary=False,
         nonunitary_is_stochastic=True,
     )
+    _trajectory_capabilities = _TrajectoryCapabilities()
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
+    )
 
     def __init__(self, name: str = "numpy-unitary"):
         super().__init__(name)
@@ -949,6 +966,10 @@ class NumpySuperopEngine(  # pylint: disable=abstract-method
 
     _quantum_capabilities = _QuantumCapabilities(
         "superop", supports_nonunitary=True, nonunitary_is_stochastic=False
+    )
+    _trajectory_capabilities = _TrajectoryCapabilities()
+    _kernel_capabilities = _KernelCapabilities(
+        supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
 
     def __init__(self, name: str = "numpy-superop"):

@@ -49,10 +49,10 @@ class _TrajectoryCapabilities:
     """Classical components supported by the complete trajectory executor."""
 
     # Per-shot reported measurement digits, also read by feedforward conditions.
-    classical_register: bool
+    classical_register: bool = False
     # Per-shot loaded-carrier state, updated by loss/Put and used to guard gates
     # and measurement. Support may come from fallback, not the compiled loop.
-    occupancy: bool
+    occupancy: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,19 +75,19 @@ class _EngineCapabilities:
     """Engine-owned static support; no evolving storage or plan allocation."""
 
     quantum: _QuantumCapabilities
-    # None means classical trajectory state is unsupported, not uninitialized.
-    trajectory: _TrajectoryCapabilities | None
+    # Flags declare support independently of the current classical container.
+    trajectory: _TrajectoryCapabilities
     kernels: _KernelCapabilities
 
     @property
     def supports_classical_register(self) -> bool:
         """Whether measurement reports and conditions have a register."""
-        return self.trajectory is not None and self.trajectory.classical_register
+        return self.trajectory.classical_register
 
     @property
     def supports_occupancy(self) -> bool:
         """Whether an execution may own explicit carrier occupancy."""
-        return self.trajectory is not None and self.trajectory.occupancy
+        return self.trajectory.occupancy
 
 
 @dataclass(frozen=True, slots=True)

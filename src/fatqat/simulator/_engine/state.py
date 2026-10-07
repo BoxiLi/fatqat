@@ -4,7 +4,7 @@ System configuration, execution policy, RNGs, and numerical caches live outside
 these records. Compiled multi-shot kernels own their state locally per shot.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import numpy as np
@@ -20,18 +20,24 @@ class QuantumState:
 
 @dataclass(slots=True)
 class ClassicalState:
-    """Reported classical digits and occupied subsystem indices for one shot."""
+    """Classical container whose components are allocated only when needed."""
 
-    clbits: list[int]
-    occupied: set[int]
+    # Unallocated register storage leaves unwritten report digits at zero.
+    clbits: list[int] | None = None
+    # None means implicitly full occupancy; an empty set means no carriers.
+    occupied: set[int] | None = None
 
 
 @dataclass(slots=True)
 class EvolutionState:
-    """Quantum state with optional classical state for dynamic execution."""
+    """Quantum and classical containers owned by one active evolution.
+
+    An empty classical container allocates no component buffers and does not
+    indicate capability support. Every evolution receives its own container.
+    """
 
     quantum: QuantumState
-    classical: ClassicalState | None = None
+    classical: ClassicalState = field(default_factory=ClassicalState)
 
 
 class NumbaEvolutionState(NamedTuple):

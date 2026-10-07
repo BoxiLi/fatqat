@@ -10,6 +10,7 @@ from fatqat._backends.engine_contract import (
 )
 from fatqat.simulator._execution_contract import (
     _KernelCapabilities,
+    _TrajectoryCapabilities,
     _ExecutionPolicy,
     _PlanFacts,
 )
@@ -125,7 +126,9 @@ def test_engine_classical_support_controls_early_validation(
     monkeypatch, operation, sweep
 ):
     backend = Simulator("SV", runtime="numpy")
-    monkeypatch.setattr(backend._engine, "_trajectory_capabilities", None)
+    monkeypatch.setattr(
+        backend._engine, "_trajectory_capabilities", _TrajectoryCapabilities()
+    )
     program = fq.Program(1, 1)
     theta = fq.Parameter("theta")
     if sweep:

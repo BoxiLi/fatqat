@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from typing import Literal
 
 from .._backends.engine_contract import _SimulationConfig as SimulationConfig
 from ..errors import BackendValidationError
 from ._execution_contract import (
-    _EngineCapabilities as EngineCapabilities,
-    _ExecutionPolicy as ExecutionPolicy,
+    _KernelCapabilities as KernelCapabilities,
     _PlanFacts as PlanFacts,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionPolicy:
+    """Final implementation and routing decisions for one execution."""
+
+    shot_strategy: Literal["none", "serial", "threads", "processes"]
+    kernel_strategy: Literal["serial", "adaptive", "threads"]
+    worker_limit: int | None
+    fusion: bool
+    use_compiled_multi_shot_kernel: bool = False
+
 
 _PARALLEL_MIN_SHOTS = 32
 
@@ -30,7 +43,7 @@ def _process_worker_ceiling(requested: int | None) -> int:
 
 
 def _explicit_thread_worker_ceiling(
-    requested: int | None, capabilities: EngineCapabilities
+    requested: int | None, capabilities: KernelCapabilities
 ) -> int:
     """Resolve a concrete ceiling for a required threaded axis."""
     return max(
@@ -43,7 +56,7 @@ def _explicit_thread_worker_ceiling(
 
 
 def _adaptive_thread_worker_ceiling(
-    requested: int | None, capabilities: EngineCapabilities
+    requested: int | None, capabilities: KernelCapabilities
 ) -> int | None:
     """Clamp an explicit ceiling while preserving an omitted caller mask."""
     if requested is None:
@@ -53,7 +66,7 @@ def _adaptive_thread_worker_ceiling(
 
 def _validate_execution_controls(
     simulation: SimulationConfig,
-    capabilities: EngineCapabilities,
+    capabilities: KernelCapabilities,
 ) -> None:
     """Reject plan-independent engine controls before lowering."""
     if (
@@ -71,11 +84,11 @@ def _validate_execution_controls(
         )
 
 
-def _materialization_policy(parent: ExecutionPolicy) -> ExecutionPolicy:
+def _materialization_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     """Project process-shot preparation into local parent execution controls."""
     if parent.shot_strategy != "processes":
         return parent
-    return ExecutionPolicy(
+    return _ExecutionPolicy(
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -84,10 +97,10 @@ def _materialization_policy(parent: ExecutionPolicy) -> ExecutionPolicy:
     )
 
 
-def _process_child_policy(parent: ExecutionPolicy) -> ExecutionPolicy:
+def _process_child_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     """Revoke dispatch and preparation authority in a process child."""
     assert parent.shot_strategy == "processes"
-    return ExecutionPolicy(
+    return _ExecutionPolicy(
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -124,7 +137,7 @@ def _should_probe_compiled_multi_shot(
 
 def _adaptive_kernel_policy(
     simulation: SimulationConfig,
-    capabilities: EngineCapabilities,
+    capabilities: KernelCapabilities,
 ) -> tuple[str, int | None]:
     """Resolve public kernel auto without reading the active caller mask."""
     if (
@@ -145,12 +158,12 @@ def _resolve_execution_policy(
     facts: PlanFacts,
     counts_requested: bool,
     state_requested: bool,
-    capabilities: EngineCapabilities,
+    capabilities: KernelCapabilities,
     compiled_multi_shot_compatible: bool,
     shots: int,
     initial_occupied: frozenset[int] | None,
     plan_is_empty: bool = False,
-) -> ExecutionPolicy:
+) -> _ExecutionPolicy:
     """Resolve validated controls and semantic facts into one final policy."""
     execution_has_shots = facts.execution_shape == "per_shot"
     shot_shardable = execution_has_shots and counts_requested and not state_requested
@@ -264,7 +277,7 @@ def _resolve_execution_policy(
             worker_limit = kernel_workers
 
     assert not use_compiled or kernel_strategy == "serial"
-    return ExecutionPolicy(
+    return _ExecutionPolicy(
         shot_strategy=shot_strategy,
         kernel_strategy=kernel_strategy,
         worker_limit=worker_limit,

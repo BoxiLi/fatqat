@@ -78,7 +78,6 @@ from . import planning
 from ._execution_contract import (
     _EngineCapabilities,
     _ExecutionContext,
-    _ExecutionPolicy,
     _PlanFacts,
 )
 from .._backends.engine_contract import (
@@ -91,6 +90,7 @@ from .._backends.engine_contract import (
     _UnitaryResultRequest,
 )
 from ._execution_policy import (
+    _ExecutionPolicy,
     _materialization_policy,
     _resolve_execution_policy,
     _should_probe_compiled_multi_shot,

@@ -120,11 +120,11 @@ from ...noise.nb import (
 from ...result import reduce_to_counts
 from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
-    _ExecutionPolicy as ExecutionPolicy,
     _KernelCapabilities,
     _QuantumCapabilities,
     _TrajectoryCapabilities,
 )
+from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
 from .base import _shot_seed_sequences
 from .np import (
     _NumpyOperatorEngine,

@@ -91,17 +91,6 @@ class _EngineCapabilities:
 
 
 @dataclass(frozen=True, slots=True)
-class _ExecutionPolicy:
-    """Final implementation and routing decisions for one execution."""
-
-    shot_strategy: Literal["none", "serial", "threads", "processes"]
-    kernel_strategy: Literal["serial", "adaptive", "threads"]
-    worker_limit: int | None
-    fusion: bool
-    use_compiled_multi_shot_kernel: bool = False
-
-
-@dataclass(frozen=True, slots=True)
 class _ExecutionContext:
     """Semantic and numerical values executed under a resolved policy."""
 

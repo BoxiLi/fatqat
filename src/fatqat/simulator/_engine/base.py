@@ -13,8 +13,8 @@ from .._execution_contract import (
     _QuantumCapabilities,
     _TrajectoryCapabilities,
     _ExecutionContext as ExecutionContext,
-    _ExecutionPolicy as ExecutionPolicy,
 )
+from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
 from .state import EvolutionState, QuantumDataT, QuantumState
 
 

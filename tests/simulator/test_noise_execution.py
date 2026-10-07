@@ -19,7 +19,8 @@ from fatqat.noise import (
     default_channel_implementation_map,
 )
 from fatqat.simulator._engine.np import NumpySVEngine
-from fatqat.simulator._execution_contract import _ExecutionContext, _ExecutionPolicy
+from fatqat.simulator._execution_contract import _ExecutionContext
+from fatqat.simulator._execution_policy import _ExecutionPolicy
 
 
 def _total_variation(counts_a, counts_b, shots):

@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
+from typing import Literal
 
 from .._backends.engine_contract import _SimulationConfig as SimulationConfig
 from ..errors import BackendValidationError
 from ._execution_contract import (
     _KernelCapabilities as KernelCapabilities,
-    _ExecutionPolicy as ExecutionPolicy,
     _PlanFacts as PlanFacts,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ExecutionPolicy:
+    """Final implementation and routing decisions for one execution."""
+
+    shot_strategy: Literal["none", "serial", "threads", "processes"]
+    kernel_strategy: Literal["serial", "adaptive", "threads"]
+    worker_limit: int | None
+    fusion: bool
+    use_compiled_multi_shot_kernel: bool = False
+
 
 _PARALLEL_MIN_SHOTS = 32
 
@@ -19,8 +32,14 @@ def _process_worker_ceiling(requested: int | None) -> int:
     """Resolve the stable size of the reusable process executor."""
     if requested is not None:
         return requested
-    cpu_count = getattr(os, "process_cpu_count", os.cpu_count)
-    return max(1, cpu_count() or 1)
+    if hasattr(os, "process_cpu_count"):
+        return max(1, os.process_cpu_count() or 1)
+    # Before Python 3.13, os.cpu_count counts every core the system has,
+    # ignoring the process's affinity mask: a pinned or container-limited
+    # process would start more workers than it may run.
+    if hasattr(os, "sched_getaffinity"):
+        return max(1, len(os.sched_getaffinity(0)))
+    return max(1, os.cpu_count() or 1)
 
 
 def _explicit_thread_worker_ceiling(
@@ -65,11 +84,11 @@ def _validate_execution_controls(
         )
 
 
-def _materialization_policy(parent: ExecutionPolicy) -> ExecutionPolicy:
+def _materialization_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     """Project process-shot preparation into local parent execution controls."""
     if parent.shot_strategy != "processes":
         return parent
-    return ExecutionPolicy(
+    return _ExecutionPolicy(
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -78,10 +97,10 @@ def _materialization_policy(parent: ExecutionPolicy) -> ExecutionPolicy:
     )
 
 
-def _process_child_policy(parent: ExecutionPolicy) -> ExecutionPolicy:
+def _process_child_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     """Revoke dispatch and preparation authority in a process child."""
     assert parent.shot_strategy == "processes"
-    return ExecutionPolicy(
+    return _ExecutionPolicy(
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -144,7 +163,7 @@ def _resolve_execution_policy(
     shots: int,
     initial_occupied: frozenset[int] | None,
     plan_is_empty: bool = False,
-) -> ExecutionPolicy:
+) -> _ExecutionPolicy:
     """Resolve validated controls and semantic facts into one final policy."""
     execution_has_shots = facts.execution_shape == "per_shot"
     shot_shardable = execution_has_shots and counts_requested and not state_requested
@@ -258,7 +277,7 @@ def _resolve_execution_policy(
             worker_limit = kernel_workers
 
     assert not use_compiled or kernel_strategy == "serial"
-    return ExecutionPolicy(
+    return _ExecutionPolicy(
         shot_strategy=shot_strategy,
         kernel_strategy=kernel_strategy,
         worker_limit=worker_limit,

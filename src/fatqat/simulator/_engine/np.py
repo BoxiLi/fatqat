@@ -83,11 +83,11 @@ from ...noise.base import _sampled_unitary_branches
 from ...result import _decode_engine_indices_to_clbit_rows, reduce_to_counts
 from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
-    _ExecutionPolicy as ExecutionPolicy,
     _KernelCapabilities,
     _QuantumCapabilities,
     _TrajectoryCapabilities,
 )
+from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
 from .base import MatrixEngine, _shot_seed_sequences
 
 # What `_sampled_unitary_branches` resolves a channel step to: branch

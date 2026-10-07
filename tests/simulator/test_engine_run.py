@@ -12,7 +12,8 @@ from fatqat._backends.steps import (
     ResetStep,
 )
 from fatqat.simulator._engine.np import NumpySVEngine
-from fatqat.simulator._execution_contract import _ExecutionContext, _ExecutionPolicy
+from fatqat.simulator._execution_contract import _ExecutionContext
+from fatqat.simulator._execution_policy import _ExecutionPolicy
 
 _SERIAL = _ExecutionPolicy(
     shot_strategy="none",

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Literal
+from contextlib import AbstractContextManager, nullcontext
+from typing import Any, Generic, Literal
 
 import numpy as np
 
@@ -14,7 +15,7 @@ from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _ExecutionPolicy as ExecutionPolicy,
 )
-from .state import EvolutionState, QuantumState
+from .state import EvolutionState, QuantumDataT, QuantumState
 
 
 def _shot_seed_sequences(
@@ -24,7 +25,7 @@ def _shot_seed_sequences(
     return np.random.SeedSequence(seed).spawn(n_iters)
 
 
-class MatrixEngine(ABC):
+class MatrixEngine(ABC, Generic[QuantumDataT]):
     """
     Abstract base class and interface contract for all engines.
     """
@@ -43,21 +44,21 @@ class MatrixEngine(ABC):
         self.name = name
         self.state_semantics = state_semantics
 
-        self._evolution_state: EvolutionState | None = None
+        self._evolution_state: EvolutionState[QuantumDataT] | None = None
         self._dims: tuple[int, ...] = ()
         self._reversed_dims: tuple[int, ...] = ()
         self._n_clbits = 0
 
     @property
-    def _state(self) -> np.ndarray | None:
-        """Forward existing kernel access to the single owned quantum buffer."""
+    def _state(self) -> QuantumDataT | None:
+        """Forward existing kernel access to the owned quantum data."""
         if self._evolution_state is None:
             return None
-        return self._evolution_state.quantum.buffer
+        return self._evolution_state.quantum.data
 
     @_state.setter
-    def _state(self, value: np.ndarray | None) -> None:
-        """Replace the quantum buffer without losing current classical state."""
+    def _state(self, value: QuantumDataT | None) -> None:
+        """Replace the quantum data without losing current classical state."""
         if value is None:
             self._evolution_state = None
         elif self._evolution_state is None:
@@ -65,16 +66,17 @@ class MatrixEngine(ABC):
                 QuantumState(value, self._state_field)
             )
         else:
-            self._evolution_state.quantum.buffer = value
+            self._evolution_state.quantum.data = value
 
     @property
-    def state(self) -> np.ndarray:
+    def state(self) -> QuantumDataT:
+        """Expose internal runtime storage without requesting a host export."""
         if self._state is None:
             raise RuntimeError("MatrixEngine state has not been initialized.")
         return self._state
 
     @state.setter
-    def state(self, value: np.ndarray) -> None:
+    def state(self, value: QuantumDataT) -> None:
         self._state = value
 
     @property
@@ -113,7 +115,7 @@ class MatrixEngine(ABC):
         *,
         initial_state: np.ndarray | None = None,
     ) -> None:
-        """Configure the system and allocate a fresh owned evolving state."""
+        """Allocate fresh runtime storage, copying any NumPy initial state."""
 
     def _set_dims(self, system_dims: Sequence[int]) -> None:
         """Set ``_dims`` and its cached reverse together, so they never drift apart."""
@@ -130,7 +132,27 @@ class MatrixEngine(ABC):
         deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
     ) -> Any:
-        """Build the engine-owned immutable payload for this run."""
+        """Build the engine-owned immutable payload outside execution scope.
+
+        Retain preparation resources while pending work or execution uses them,
+        and establish readiness before execution consumes prepared data. The
+        later execution scope does not retroactively cover preparation.
+        """
+
+    def _execution_scope(self, policy: ExecutionPolicy) -> AbstractContextManager[None]:
+        """Set up the runtime context for local or shot-batch execution.
+
+        Overrides keep dependent work ordered and its resources alive. Successful
+        exit completes this invocation's numerical work, transfers, required
+        classical updates, and preparation dependencies, even without host output.
+        Unrelated device work need not finish.
+
+        On failure, clean up and propagate execution errors. If cleanup also
+        fails, keep the original error inspectable. Quantum state may outlive
+        the scope. This does not require per-gate synchronization or make
+        concurrent calls safe.
+        """
+        return nullcontext()
 
     @abstractmethod
     def execute_local(
@@ -138,7 +160,7 @@ class MatrixEngine(ABC):
         context: ExecutionContext,
         payload: Any,
         policy: ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[QuantumDataT]:
         """Execute a materialized payload locally without dispatching."""
 
     def execute_shot_batch(
@@ -187,14 +209,19 @@ class MatrixEngine(ABC):
     def apply(self, step: ApplyMatrixStep) -> None:
         """Apply a single matrix step to the internal state in place."""
 
-    def export_state(self) -> np.ndarray:
-        """
-        Export the current state of the engine as a numpy array.
-        """
-        return self.state.copy()
+    def export_state(self) -> QuantumDataT:
+        """Return state data in runtime-native storage for further processing.
 
+        The default borrows internal data without copying or host transfer.
+        Overrides convert the representation only when needed. Callers copy or
+        transfer the result when they need independent storage or host data.
+        """
+        return self._export_state_data(self.state)
+
+    def _export_state_data(self, data: QuantumDataT) -> QuantumDataT:
+        """Convert representation when required, retaining runtime storage."""
+        return data
+
+    @abstractmethod
     def sample_indices(self, shots: int, rng: np.random.Generator) -> np.ndarray:
-        """
-        Sample flat basis-state indices from the current state.
-        """
-        return rng.choice(self.state.shape[0], size=shots, p=self.probabilities())
+        """Return sampled flat basis-state indices as a NumPy array."""

@@ -113,7 +113,7 @@ def _dispatch_execution(
     context: _ExecutionContext,
     payload: Any,
     policy: _ExecutionPolicy,
-) -> RawResult:
+) -> RawResult[np.ndarray]:
     """Dispatch one prepared execution without leaking routes into engines."""
     state_requested = any(
         getattr(context.request, field, False)
@@ -1642,7 +1642,7 @@ class Simulator:
         deferred_measurements: tuple[tuple[int, int], ...],
         context: _ExecutionContext,
         policy: _ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Materialize once in the parent, then dispatch the opaque payload."""
         local_policy = _materialization_policy(policy)
         payload = self._engine.materialize_execution(
@@ -1657,7 +1657,7 @@ class Simulator:
     def _assemble_result(
         self,
         *,
-        raw: RawResult,
+        raw: RawResult[np.ndarray],
         config: _ResultConfig,
         simulation: _SimulationConfig,
         lowering: _LoweringContext,
@@ -1726,7 +1726,7 @@ class Simulator:
         *,
         config: _ResultConfig,
         simulation: _SimulationConfig,
-        raw: RawResult,
+        raw: RawResult[np.ndarray],
     ) -> Mapping[str, Any]:
         """Return backend-specific result artifacts for this completed run.
 

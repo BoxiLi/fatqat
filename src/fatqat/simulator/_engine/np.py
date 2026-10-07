@@ -60,7 +60,6 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Sequence
-from contextlib import nullcontext
 from math import prod
 from typing import Any
 
@@ -243,7 +242,7 @@ def _apply_measurement_reporting(
 # --- shared orchestration ---
 
 
-class _NumpyMatrixEngine(MatrixEngine):
+class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
     """Semantics-agnostic execution for the NumPy matrix-family engines.
 
     Owns local materialization and semantic execution through abstract kernels.
@@ -308,16 +307,16 @@ class _NumpyMatrixEngine(MatrixEngine):
         Engines without step caches have nothing to prune.
         """
 
-    def _execution_scope(self, policy: ExecutionPolicy):
-        """Return this runtime's local numeric-execution scope."""
-        return nullcontext()
+    def sample_indices(self, shots: int, rng: np.random.Generator) -> np.ndarray:
+        """Sample flat basis-state indices from the NumPy quantum buffer."""
+        return rng.choice(self.state.shape[0], size=shots, p=self.probabilities())
 
     def execute_local(
         self,
         context: ExecutionContext,
         payload: Any,
         policy: ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Execute one materialized state plan without dispatching."""
         assert policy.shot_strategy != "processes"
         self.configure_system(context.system_dims, context.n_clbits)
@@ -343,7 +342,7 @@ class _NumpyMatrixEngine(MatrixEngine):
         rng: np.random.Generator,
         request: ResultRequest,
         initial_state: np.ndarray | None,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Evolve once, optionally sample counts, optionally export the state.
 
         The ``ResetStep`` and ``ApplyChannelStep`` branches are only reachable
@@ -392,7 +391,7 @@ class _NumpyMatrixEngine(MatrixEngine):
         self,
         plan: Sequence[ResolvedStep],
         context: ExecutionContext,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Replay dynamic trajectories locally under an already-resolved policy."""
         request = context.request
         state_requested = getattr(request, self._state_field)
@@ -848,7 +847,7 @@ class _NumpyOperatorEngine(_NumpyMatrixEngine):
         context: ExecutionContext,
         payload: Any,
         policy: ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Evolve one already-materialized operator plan in this process."""
         assert policy.shot_strategy == "none"
         assert context.execution_shape == "operator"
@@ -869,7 +868,7 @@ class _NumpyOperatorEngine(_NumpyMatrixEngine):
         plan: Sequence[ResolvedStep],
         rng: np.random.Generator,
         request: ResultRequest,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         for step in plan:
             assert not isinstance(
                 step, MeasurementStep
@@ -981,14 +980,14 @@ class NumpySuperopEngine(  # pylint: disable=abstract-method
         assert initial_state is None, "operator execution has no initial state"
         return np.eye(size * size, dtype=complex)
 
-    def export_state(self) -> np.ndarray:
-        """Export the super-operator in the public column-stacking convention.
+    def _export_state_data(self, data: np.ndarray) -> np.ndarray:
+        """Convert NumPy super-operator data to public column stacking.
 
         This existing vectorization conversion does not reorder subsystems.
         """
         size = prod(self._dims) if self._dims else 1
-        internal = self.state.reshape((size,) * 4)
-        exported = np.empty_like(self.state, order="C")
+        internal = data.reshape((size,) * 4)
+        exported = np.empty_like(data, order="C")
         exported.reshape((size,) * 4)[...] = internal.transpose(1, 0, 3, 2)
         return exported
 

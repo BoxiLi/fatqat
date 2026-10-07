@@ -1821,7 +1821,7 @@ class NumbaSVEngine(NumpySVEngine):
         context: ExecutionContext,
         payload,
         policy: ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         self.configure_system(context.system_dims, context.n_clbits)
         self._apply_plans = dict(payload[3])
         if not policy.use_compiled_multi_shot_kernel:
@@ -1949,7 +1949,7 @@ class NumbaSVEngine(NumpySVEngine):
         self,
         context: ExecutionContext,
         compiled,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Execute a materialized counts plan in one compiled multi-shot call."""
         plan_arrays, max_draws = compiled
         shots = context.shots
@@ -2375,7 +2375,7 @@ class NumbaDMEngine(NumpyDMEngine):
         context: ExecutionContext,
         payload,
         policy: ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         self.configure_system(context.system_dims, context.n_clbits)
         self._sandwich_plans = dict(payload[2])
         return super().execute_local(context, payload, policy)
@@ -2859,7 +2859,7 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
         context: ExecutionContext,
         payload,
         policy: ExecutionPolicy,
-    ) -> RawResult:
+    ) -> RawResult[np.ndarray]:
         """Execute one already-packed operator payload without replanning."""
         assert policy.shot_strategy == "none"
         assert context.execution_shape == "operator"

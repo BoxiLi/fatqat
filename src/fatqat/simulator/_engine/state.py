@@ -5,22 +5,32 @@ these records. Compiled multi-shot kernels own their state locally per shot.
 """
 
 from dataclasses import dataclass, field
-from typing import NamedTuple
+from typing import Generic, NamedTuple, TypeVar
 
 import numpy as np
 
+QuantumDataT = TypeVar("QuantumDataT")
+
 
 @dataclass(slots=True)
-class QuantumState:
-    """The authoritative numerical buffer and its concrete representation."""
+class QuantumState(Generic[QuantumDataT]):
+    """The authoritative quantum data and its concrete representation.
 
-    buffer: np.ndarray
+    The engine determines the data type and layout. This record does not
+    prescribe numerical operations or imply support for arbitrary arrays.
+    """
+
+    data: QuantumDataT
     representation: str
 
 
 @dataclass(slots=True)
 class ClassicalState:
-    """Classical container whose components are allocated only when needed."""
+    """Classical container whose components are allocated only when needed.
+
+    Components may stay on the CPU. Updates based on numerical results wait for
+    those results and finish before later operations use them.
+    """
 
     # Unallocated register storage leaves unwritten report digits at zero.
     clbits: list[int] | None = None
@@ -29,14 +39,14 @@ class ClassicalState:
 
 
 @dataclass(slots=True)
-class EvolutionState:
+class EvolutionState(Generic[QuantumDataT]):
     """Quantum and classical containers owned by one active evolution.
 
     An empty classical container allocates no component buffers and does not
     indicate capability support. Every evolution receives its own container.
     """
 
-    quantum: QuantumState
+    quantum: QuantumState[QuantumDataT]
     classical: ClassicalState = field(default_factory=ClassicalState)
 
 

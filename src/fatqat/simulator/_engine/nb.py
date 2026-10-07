@@ -131,7 +131,7 @@ from .np import (
     NumpySVEngine,
     NumpyUnitaryEngine,
 )
-from .state import CompiledEvolutionState
+from .state import NumbaEvolutionState
 
 # Numba fixes the launch pool's capacity at import time. ``set_num_threads``
 # changes only the active mask, so policy ceilings clamp to this configured
@@ -1515,7 +1515,7 @@ def _initialize_shot_state(start, state_size, custom_start, n_clbits):
         # Construct |0...0> directly, without an O(D) template to copy.
         quantum = np.zeros(state_size, dtype=np.complex128)
         quantum[0] = 1.0 + 0.0j
-    return CompiledEvolutionState(quantum, np.zeros(n_clbits, dtype=np.int64))
+    return NumbaEvolutionState(quantum, np.zeros(n_clbits, dtype=np.int64))
 
 
 @njit(cache=True, parallel=True)
@@ -1584,7 +1584,7 @@ def _run_shots_kernel(
 ) -> np.ndarray:  # pragma: no cover - compiled by Numba
     """Run ``shots`` independent dynamic trajectories in parallel.
 
-    Each shot (a `prange` iteration) owns a local `CompiledEvolutionState`
+    Each shot (a `prange` iteration) owns a local `NumbaEvolutionState`
     and interprets the compiled plan: conditioned gate application, projective
     measurement with readout confusion, conditioned reset, and conditioned channel
     noise. Uniforms are pre-drawn per shot in execution order (slice
@@ -1623,7 +1623,7 @@ def _run_shots_kernel(
                     uniforms,
                     draw,
                 )
-                evolution = CompiledEvolutionState(quantum, evolution.classical)
+                evolution = NumbaEvolutionState(quantum, evolution.classical)
             elif kind == 0 and passes:  # gate
                 _apply_step(
                     evolution.quantum,
@@ -1652,7 +1652,7 @@ def _run_shots_kernel(
                     rs_dim,
                     uniforms[draw],
                 )
-                evolution = CompiledEvolutionState(quantum, evolution.classical)
+                evolution = NumbaEvolutionState(quantum, evolution.classical)
                 draw += 1
             elif kind == 3 and passes:  # channel noise (applied in place)
                 _channel_step(

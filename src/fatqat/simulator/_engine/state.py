@@ -34,7 +34,7 @@ class EvolutionState:
     classical: ClassicalState | None = None
 
 
-class CompiledEvolutionState(NamedTuple):
+class NumbaEvolutionState(NamedTuple):
     """Quantum and classical arrays owned by one compiled statevector shot.
 
     This path assumes full occupancy. Replacing the record swaps array

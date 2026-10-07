@@ -89,11 +89,9 @@ from .._backends.engine_contract import (
     _SuperopResultRequest,
     _UnitaryResultRequest,
 )
-from ._execution_policy import (
+from ._engine._execution_policy import (
     _ExecutionPolicy,
     _materialization_policy,
-    _resolve_execution_policy,
-    _should_probe_compiled_multi_shot,
     _validate_execution_controls,
 )
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
@@ -1424,30 +1422,15 @@ class Simulator:
         request: _ResultRequest,
         shots: int,
     ) -> _ExecutionPolicy:
-        """Resolve execution routing for one concrete prepared plan."""
-        counts_requested = request.counts
-        state_requested = getattr(request, self._state_field)
-        compiled_multi_shot_compatible = False
-        if _should_probe_compiled_multi_shot(
+        """Ask the engine to resolve policy for one concrete prepared plan."""
+        return self._engine.resolve_execution_policy(
+            plan,
             prepared.simulation,
             facts=prepared.facts,
-            counts_requested=counts_requested,
-            state_requested=state_requested,
-            initial_occupied=prepared.initial_occupied,
-        ):
-            compiled_multi_shot_compatible = (
-                self._engine.compiled_multi_shot_compatible(plan)
-            )
-        return _resolve_execution_policy(
-            prepared.simulation,
-            facts=prepared.facts,
-            counts_requested=counts_requested,
-            state_requested=state_requested,
-            capabilities=prepared.capabilities.kernels,
-            compiled_multi_shot_compatible=compiled_multi_shot_compatible,
+            counts_requested=request.counts,
+            state_requested=getattr(request, self._state_field),
             shots=shots,
             initial_occupied=prepared.initial_occupied,
-            plan_is_empty=not plan,
         )
 
     # --- validation (raises directly from run) ---

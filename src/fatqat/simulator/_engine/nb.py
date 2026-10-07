@@ -124,7 +124,7 @@ from .._execution_contract import (
     _QuantumCapabilities,
     _TrajectoryCapabilities,
 )
-from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
+from ._execution_policy import _ExecutionPolicy as ExecutionPolicy
 from .base import _shot_seed_sequences
 from .np import (
     _NumpyOperatorEngine,

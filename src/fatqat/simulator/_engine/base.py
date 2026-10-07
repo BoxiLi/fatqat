@@ -5,7 +5,10 @@ from typing import Any, Generic, Literal
 
 import numpy as np
 
-from ..._backends.engine_contract import RawResult
+from ..._backends.engine_contract import (
+    RawResult,
+    _SimulationConfig as SimulationConfig,
+)
 from ..._backends.steps import ApplyMatrixStep, ResolvedStep
 from .._execution_contract import (
     _EngineCapabilities,
@@ -13,8 +16,13 @@ from .._execution_contract import (
     _QuantumCapabilities,
     _TrajectoryCapabilities,
     _ExecutionContext as ExecutionContext,
+    _PlanFacts as PlanFacts,
 )
-from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
+from ._execution_policy import (
+    _ExecutionPolicy as ExecutionPolicy,
+    _resolve_execution_policy,
+    _should_probe_compiled_multi_shot,
+)
 from .state import EvolutionState, QuantumDataT, QuantumState
 
 
@@ -100,6 +108,39 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
         """Whether this engine can own the complete per-shot outer loop."""
         return False
+
+    def resolve_execution_policy(
+        self,
+        plan: Sequence[ResolvedStep],
+        simulation: SimulationConfig,
+        *,
+        facts: PlanFacts,
+        counts_requested: bool,
+        state_requested: bool,
+        shots: int,
+        initial_occupied: frozenset[int] | None,
+    ) -> ExecutionPolicy:
+        """Choose execution paths for a plan using this engine's support."""
+        compiled_multi_shot_compatible = False
+        if _should_probe_compiled_multi_shot(
+            simulation,
+            facts=facts,
+            counts_requested=counts_requested,
+            state_requested=state_requested,
+            initial_occupied=initial_occupied,
+        ):
+            compiled_multi_shot_compatible = self.compiled_multi_shot_compatible(plan)
+        return _resolve_execution_policy(
+            simulation,
+            facts=facts,
+            counts_requested=counts_requested,
+            state_requested=state_requested,
+            capabilities=self.capabilities.kernels,
+            compiled_multi_shot_compatible=compiled_multi_shot_compatible,
+            shots=shots,
+            initial_occupied=initial_occupied,
+            plan_is_empty=not plan,
+        )
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         """Configure dimensions without allocating an evolving state."""

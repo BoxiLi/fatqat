@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._execution_contract import _ExecutionContext as ExecutionContext
-from .._execution_policy import (
+from ._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _process_child_policy,
 )

@@ -13,7 +13,7 @@ from fatqat.simulator._execution_contract import (
     _TrajectoryCapabilities,
     _PlanFacts,
 )
-from fatqat.simulator._execution_policy import (
+from fatqat.simulator._engine._execution_policy import (
     _ExecutionPolicy,
     _materialization_policy,
     _process_child_policy,
@@ -361,7 +361,7 @@ def test_execution_policy_decision_table(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "fatqat.simulator._execution_policy.os.process_cpu_count",
+        "fatqat.simulator._engine._execution_policy.os.process_cpu_count",
         lambda: 6,
         raising=False,
     )
@@ -396,7 +396,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
     # Before Python 3.13 there is no os.process_cpu_count, and os.cpu_count
     # counts every core of the machine even when the process may use only a
     # few (taskset, container CPU limits).
-    module = "fatqat.simulator._execution_policy.os"
+    module = "fatqat.simulator._engine._execution_policy.os"
     monkeypatch.delattr(f"{module}.process_cpu_count", raising=False)
     monkeypatch.setattr(f"{module}.cpu_count", lambda: 192)
     monkeypatch.setattr(

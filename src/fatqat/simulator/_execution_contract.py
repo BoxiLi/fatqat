@@ -30,8 +30,12 @@ class _PlanFacts:
 class _QuantumCapabilities:
     """Representation semantics, independent of numerical runtime."""
 
+    # Quantum buffer interpretation and method-native result field.
     representation: Literal["statevector", "density_matrix", "unitary", "superop"]
+    # Whether this representation can execute reset and finite channel maps.
     supports_nonunitary: bool
+    # Reset/channel execution samples a branch per shot instead of evolving
+    # the full ensemble. Support is declared separately by supports_nonunitary.
     nonunitary_is_stochastic: bool
 
     @property
@@ -44,7 +48,10 @@ class _QuantumCapabilities:
 class _TrajectoryCapabilities:
     """Classical components supported by the complete trajectory executor."""
 
+    # Per-shot reported measurement digits, also read by feedforward conditions.
     classical_register: bool
+    # Per-shot loaded-carrier state, updated by loss/Put and used to guard gates
+    # and measurement. Support may come from fallback, not the compiled loop.
     occupancy: bool
 
 
@@ -52,8 +59,14 @@ class _TrajectoryCapabilities:
 class _KernelCapabilities:
     """Numerical controls, separate from supported trajectory state."""
 
+    # Numerical operations can use threads within one evolution; this alone
+    # does not imply support for running complete shots in parallel.
     supports_kernel_threads: bool
+    # Runtime thread-pool ceiling, independent of the caller's active mask.
+    # Current Numba kernel and compiled-shot execution share this pool.
     thread_capacity: int
+    # Plan materialization can combine compatible adjacent operations.
+    # This does not enable or disable compiled multi-shot execution.
     supports_fusion: bool
 
 
@@ -62,6 +75,7 @@ class _EngineCapabilities:
     """Engine-owned static support; no evolving storage or plan allocation."""
 
     quantum: _QuantumCapabilities
+    # None means classical trajectory state is unsupported, not uninitialized.
     trajectory: _TrajectoryCapabilities | None
     kernels: _KernelCapabilities
 

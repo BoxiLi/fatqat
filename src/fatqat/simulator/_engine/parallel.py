@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from itertools import repeat
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from .._execution_contract import _ExecutionContext as ExecutionContext
-from .._execution_policy import (
+from ._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _process_child_policy,
 )
@@ -25,9 +26,6 @@ if TYPE_CHECKING:
             seed_batch: list[np.random.SeedSequence],
             policy: ExecutionPolicy,
         ) -> list[tuple[int, ...]]: ...
-
-    class _EngineFactory(Protocol):
-        def __call__(self) -> _ProcessEngine: ...
 
 
 # Installed before scientific modules import in a loky child. The explicit
@@ -60,13 +58,13 @@ def _split_into_batches(
 
 
 def _run_shot_batch(
-    engine_cls: _EngineFactory,
+    engine_factory: Callable[[], _ProcessEngine],
     context: ExecutionContext,
     payload: Any,
     seed_batch: list[np.random.SeedSequence],
     child_policy: ExecutionPolicy,
 ) -> list[tuple[int, ...]]:
-    engine = engine_cls()
+    engine = engine_factory()
     return engine.execute_shot_batch(context, payload, seed_batch, child_policy)
 
 
@@ -80,7 +78,7 @@ def _loky_executor(max_workers: int):
 
 
 def _run_shots_in_processes(
-    engine_cls: _EngineFactory,
+    engine_factory: Callable[[], _ProcessEngine],
     context: ExecutionContext,
     payload: Any,
     policy: ExecutionPolicy,
@@ -96,7 +94,7 @@ def _run_shots_in_processes(
     executor = _loky_executor(policy.worker_limit)
     results = executor.map(
         _run_shot_batch,
-        repeat(engine_cls),
+        repeat(engine_factory),
         repeat(context),
         repeat(payload),
         batches,

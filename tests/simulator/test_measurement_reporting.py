@@ -2,12 +2,14 @@
 
 import numpy as np
 
-from fatqat._backends.engine_contract import _StateVectorResultRequest
+from fatqat.simulator._execution_contract import (
+    _StateVectorResultRequest,
+    _ExecutionContext,
+)
 from fatqat._backends.steps import ApplyMatrixStep, MeasurementStep
 from fatqat.implementation.matrices import shift_matrix
 from fatqat.simulator._engine.np import NumpySVEngine
-from fatqat.simulator._execution_contract import _ExecutionContext
-from fatqat.simulator._execution_policy import _ExecutionPolicy
+from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
 
 def test_reported_digit_mapping_precedes_confusion_and_feedforward():

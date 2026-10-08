@@ -6,12 +6,12 @@ import os
 from dataclasses import dataclass
 from typing import Literal
 
-from .._backends.engine_contract import _SimulationConfig as SimulationConfig
-from ..errors import BackendValidationError
-from ._execution_contract import (
+from .._execution_contract import (
+    _SimulationConfig as SimulationConfig,
     _KernelCapabilities as KernelCapabilities,
     _PlanFacts as PlanFacts,
 )
+from ...errors import BackendValidationError
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,26 +62,6 @@ def _adaptive_thread_worker_ceiling(
     if requested is None:
         return None
     return max(1, min(requested, capabilities.thread_capacity))
-
-
-def _validate_execution_controls(
-    simulation: SimulationConfig,
-    capabilities: KernelCapabilities,
-) -> None:
-    """Reject plan-independent engine controls before lowering."""
-    if (
-        simulation.kernel_parallelism == "threads"
-        and not capabilities.supports_kernel_threads
-    ):
-        raise BackendValidationError(
-            "kernel_parallelism='threads' requires an engine with threaded "
-            "numerical kernels"
-        )
-    if simulation.fusion and not capabilities.supports_fusion:
-        raise BackendValidationError(
-            "fusion=True is not supported by the selected matrix engine; fusion "
-            "does not control compiled multi-shot execution"
-        )
 
 
 def _materialization_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
@@ -160,6 +140,7 @@ def _resolve_execution_policy(
     state_requested: bool,
     capabilities: KernelCapabilities,
     compiled_multi_shot_compatible: bool,
+    supports_process_shots: bool,
     shots: int,
     initial_occupied: frozenset[int] | None,
     plan_is_empty: bool = False,
@@ -268,7 +249,12 @@ def _resolve_execution_policy(
         use_compiled = True
     else:
         process_workers = _process_worker_ceiling(simulation.max_workers)
-        if shot_shardable and shots >= _PARALLEL_MIN_SHOTS and process_workers > 1:
+        if (
+            supports_process_shots
+            and shot_shardable
+            and shots >= _PARALLEL_MIN_SHOTS
+            and process_workers > 1
+        ):
             shot_strategy = "processes"
             kernel_strategy = "serial"
             worker_limit = process_workers

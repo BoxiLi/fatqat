@@ -8,7 +8,7 @@ import pytest
 import fatqat as fq
 import fatqat.operations as ops
 from fatqat.simulator import SCQubitSimulator, Simulator
-from fatqat._backends.engine_contract import _SimulationConfig
+from fatqat.simulator._execution_contract import _SimulationConfig
 from fatqat.errors import BackendValidationError
 from fatqat.result import Result, _ResultConfig
 

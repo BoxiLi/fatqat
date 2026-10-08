@@ -5,15 +5,13 @@ import pytest
 
 import fatqat as fq
 import fatqat.operations as ops
-from fatqat._backends.engine_contract import (
-    _SimulationConfig,
-)
 from fatqat.simulator._execution_contract import (
+    _SimulationConfig,
     _KernelCapabilities,
     _TrajectoryCapabilities,
     _PlanFacts,
 )
-from fatqat.simulator._execution_policy import (
+from fatqat.simulator._engine._execution_policy import (
     _ExecutionPolicy,
     _materialization_policy,
     _process_child_policy,
@@ -86,14 +84,33 @@ def test_public_execution_configuration_defaults():
     )
 
 
-def test_kernel_threads_require_engine_support_before_execution():
-    program = fq.Program(1, 1)
-    program.measure(0, 0)
+@pytest.mark.parametrize("request_kind", ["run", "sweep", "expectation"])
+@pytest.mark.parametrize(
+    "config, match",
+    [
+        ({"kernel_parallelism": "threads"}, "threaded numerical kernels"),
+        ({"fusion": True}, "fusion=True is not supported"),
+        ({"shot_parallelism": "processes"}, "processes.*not supported"),
+    ],
+)
+def test_engine_support_validates_execution_controls(
+    monkeypatch, request_kind, config, match
+):
+    backend = Simulator("SV", runtime="numpy")
+    monkeypatch.setattr(backend._engine, "_supports_process_shots", False)
+    program = fq.Program(1)
+    theta = fq.Parameter("theta")
+    program.add(ops.RX(theta if request_kind == "sweep" else 0.1), 0)
 
-    with pytest.raises(BackendValidationError, match="threaded numerical kernels"):
-        Simulator("unitary", runtime="numpy").run(
-            program, simulation_config={"kernel_parallelism": "threads"}
-        )
+    with pytest.raises(BackendValidationError, match=match):
+        if request_kind == "sweep":
+            backend.run_sweep(program, {theta: [0.1, 0.2]}, simulation_config=config)
+        elif request_kind == "expectation":
+            fq.Estimator(backend).run(
+                program, fq.Observable([("Z", 1.0)]), simulation_config=config
+            )
+        else:
+            backend.run(program, simulation_config=config)
 
 
 def test_materialization_failure_belongs_to_the_job(monkeypatch):
@@ -361,7 +378,7 @@ def test_execution_policy_decision_table(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "fatqat.simulator._execution_policy.os.process_cpu_count",
+        "fatqat.simulator._engine._execution_policy.os.process_cpu_count",
         lambda: 6,
         raising=False,
     )
@@ -372,6 +389,7 @@ def test_execution_policy_decision_table(
         state_requested=state_requested,
         capabilities=capabilities,
         compiled_multi_shot_compatible=compatible,
+        supports_process_shots=True,
         shots=shots,
         initial_occupied=initial_occupied,
     )
@@ -396,7 +414,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
     # Before Python 3.13 there is no os.process_cpu_count, and os.cpu_count
     # counts every core of the machine even when the process may use only a
     # few (taskset, container CPU limits).
-    module = "fatqat.simulator._execution_policy.os"
+    module = "fatqat.simulator._engine._execution_policy.os"
     monkeypatch.delattr(f"{module}.process_cpu_count", raising=False)
     monkeypatch.setattr(f"{module}.cpu_count", lambda: 192)
     monkeypatch.setattr(
@@ -409,6 +427,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         state_requested=False,
         capabilities=_KernelCapabilities(True, 8, True),
         compiled_multi_shot_compatible=False,
+        supports_process_shots=True,
         shots=64,
         initial_occupied=None,
     )
@@ -526,6 +545,7 @@ def test_execution_policy_rejects_inapplicable_requests(
             state_requested=state_requested,
             capabilities=capabilities,
             compiled_multi_shot_compatible=compatible,
+            supports_process_shots=True,
             shots=shots,
             initial_occupied=None,
             plan_is_empty=plan_is_empty,

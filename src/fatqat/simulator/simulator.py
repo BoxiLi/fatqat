@@ -19,8 +19,6 @@ from .._expectation import (
     _combine_term_statistics,
     _plan_term_occurrences,
     _reduce_outcome_counts,
-    expectation_density_matrix,
-    expectation_statevector,
 )
 from .._parameter_binding import (
     _discover_parameters,
@@ -57,16 +55,8 @@ from ..result import (
     Result,
     _ResultConfig,
     counts_dict_from_arrays,
-    reduce_to_counts,
 )
 from ._engine.base import MatrixEngine, _shot_seed_sequences
-from ._engine.parallel import _run_shots_in_processes
-from ._engine.np import (
-    NumpyDMEngine,
-    NumpySuperopEngine,
-    NumpySVEngine,
-    NumpyUnitaryEngine,
-)
 from .._backends.backend_utils import (
     _LoweringContext,
     _canonicalize_method,
@@ -76,11 +66,8 @@ from .._backends.backend_utils import (
 )
 from . import planning
 from ._execution_contract import (
-    _EngineCapabilities,
     _ExecutionContext,
     _PlanFacts,
-)
-from .._backends.engine_contract import (
     RawResult,
     _DensityMatrixResultRequest,
     _ResultRequest,
@@ -89,13 +76,7 @@ from .._backends.engine_contract import (
     _SuperopResultRequest,
     _UnitaryResultRequest,
 )
-from ._execution_policy import (
-    _ExecutionPolicy,
-    _materialization_policy,
-    _resolve_execution_policy,
-    _should_probe_compiled_multi_shot,
-    _validate_execution_controls,
-)
+from ._engine._execution_policy import _ExecutionPolicy
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
 from .._backends.steps import (
     ApplyChannelStep,
@@ -108,74 +89,40 @@ from .._backends.steps import (
 )
 
 
-def _dispatch_execution(
-    engine: MatrixEngine,
-    context: _ExecutionContext,
-    payload: Any,
-    policy: _ExecutionPolicy,
-) -> RawResult[np.ndarray]:
-    """Dispatch one prepared execution without leaking routes into engines."""
-    state_requested = any(
-        getattr(context.request, field, False)
-        for field in ("statevector", "density_matrix", "unitary", "superop")
-    )
-    if policy.use_compiled_multi_shot_kernel:
-        assert context.execution_shape == "per_shot"
-        assert context.request.counts and not state_requested
-        assert context.initial_occupied is None
-
-    if policy.shot_strategy in ("none", "serial", "threads"):
-        return engine.execute_local(context, payload, policy)
-
-    assert policy.use_compiled_multi_shot_kernel is False
-    assert policy.shot_strategy == "processes"
-    assert context.execution_shape == "per_shot"
-    assert context.request.counts and not state_requested
-    snapshots = _run_shots_in_processes(type(engine), context, payload, policy)
-    rows = np.asarray(snapshots, dtype=int).reshape((len(snapshots), context.n_clbits))
-    outcome_keys, outcome_counts = reduce_to_counts(rows)
-    return RawResult(
-        outcome_keys=outcome_keys,
-        outcome_counts=outcome_counts,
-    )
-
-
 @dataclass(frozen=True)
 class _MethodSpec:
     """Everything the chosen simulation method binds into a `Simulator`.
 
     Attributes:
         request_cls: The method's engine-request value object.
-        numpy_engine: The `MatrixEngine` subclass for ``runtime="numpy"``.
-        numba_engine_name: The `fatqat.simulator._engine.nb` attribute naming
-            the ``runtime="numba"`` twin, held as a name so the module is
-            resolved lazily.
+        numpy_engine_name: Class name in the lazily loaded NumPy engine module.
+        numba_engine_name: Class name in the lazily loaded Numba engine module.
     """
 
     request_cls: type
-    numpy_engine: type[MatrixEngine]
+    numpy_engine_name: str
     numba_engine_name: str
 
 
 _METHOD_SPECS: dict[str, _MethodSpec] = {
     "statevector": _MethodSpec(
         request_cls=_StateVectorResultRequest,
-        numpy_engine=NumpySVEngine,
+        numpy_engine_name="NumpySVEngine",
         numba_engine_name="NumbaSVEngine",
     ),
     "density_matrix": _MethodSpec(
         request_cls=_DensityMatrixResultRequest,
-        numpy_engine=NumpyDMEngine,
+        numpy_engine_name="NumpyDMEngine",
         numba_engine_name="NumbaDMEngine",
     ),
     "unitary": _MethodSpec(
         request_cls=_UnitaryResultRequest,
-        numpy_engine=NumpyUnitaryEngine,
+        numpy_engine_name="NumpyUnitaryEngine",
         numba_engine_name="NumbaUnitaryEngine",
     ),
     "superop": _MethodSpec(
         request_cls=_SuperopResultRequest,
-        numpy_engine=NumpySuperopEngine,
+        numpy_engine_name="NumpySuperopEngine",
         numba_engine_name="NumbaSuperopEngine",
     ),
 }
@@ -190,7 +137,6 @@ class _PreparedExecution:
     initial_occupied: frozenset[int] | None
     lowering: _LoweringContext
     simulation: _SimulationConfig
-    capabilities: _EngineCapabilities
     initial_state: np.ndarray | None
 
 
@@ -344,18 +290,20 @@ class Simulator:
         # Select implementations here; execution support belongs to the engine.
         spec = _METHOD_SPECS[normalized]
         self._request_cls = spec.request_cls
-        self._engine_cls: type[MatrixEngine] = spec.numpy_engine
         if normalized_runtime == "numba":
             try:
-                # Lazy: fatqat.simulator's package __init__ deliberately never
-                # imports the Numba engine module.
-                from ._engine import nb
+                from ._engine import nb as engine_module
             except ImportError as exc:
                 raise BackendValidationError(
                     "runtime='numba' requires the numba dependency; reinstall "
                     "fatqat to repair the environment"
                 ) from exc
-            self._engine_cls = getattr(nb, spec.numba_engine_name)
+            engine_name = spec.numba_engine_name
+        else:
+            from ._engine import np as engine_module
+
+            engine_name = spec.numpy_engine_name
+        self._engine_cls: type[MatrixEngine] = getattr(engine_module, engine_name)
         self._runtime = normalized_runtime
 
         if implementation_map is None:
@@ -871,6 +819,7 @@ class Simulator:
             config,
             shots,
             prepared.facts,
+            simulation_config=simulation,
             initial_occupied=prepared.initial_occupied,
         )
         self._validate_additional_config(
@@ -895,7 +844,6 @@ class Simulator:
             initial_occupied=prepared.initial_occupied,
             lowering=prepared.lowering,
             simulation=prepared.simulation,
-            capabilities=prepared.capabilities,
             initial_state=prepared.initial_state,
             config=config,
             shots=shots,
@@ -913,8 +861,6 @@ class Simulator:
         param_order: tuple[Parameter, ...] | None = None,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
-        capabilities = self._engine.capabilities
-        _validate_execution_controls(simulation, capabilities.kernels)
         # Both hooks are resolved exactly once per run, before any execution
         # try block: capacity, dimension, grid-fit, and mapping failures must
         # raise directly, never become a failed Job. The resource layout is the
@@ -957,7 +903,6 @@ class Simulator:
             initial_occupied=initial_occupied,
             lowering=lowering,
             simulation=simulation,
-            capabilities=capabilities,
             initial_state=initial_state,
         )
 
@@ -1108,12 +1053,13 @@ class Simulator:
                 "an exact statevector expectation is unavailable for stochastic "
                 "reset or channel execution; use density_matrix or positive shots"
             )
-        self._validate_method_support(
+        self._validate_engine_support(
             self._result_config_cls(),
             execution.facts,
+            simulation_config=execution.simulation,
             initial_occupied=execution.initial_occupied,
         )
-        if shots > 0 and not execution.capabilities.supports_classical_register:
+        if shots > 0 and not self._engine.capabilities.supports_classical_register:
             raise UnsupportedOperationError(
                 "sampled expectations require an engine with a classical register"
             )
@@ -1266,8 +1212,8 @@ class Simulator:
     def _execute_expectation_base(
         self,
         prepared: _PreparedExpectation,
-    ) -> np.ndarray:
-        """Execute the prepared base plan once and return its internal state."""
+    ) -> Any:
+        """Execute the base plan once and borrow its runtime-native state."""
         execution = prepared.execution
         plan = execution.plan
         assert isinstance(plan, tuple)
@@ -1283,7 +1229,7 @@ class Simulator:
             initial_state=execution.initial_state,
             initial_occupied=execution.initial_occupied,
         )
-        raw = self._execute_engine(
+        raw = self._engine.execute(
             plan=plan,
             deferred_measurements=execution.facts.deferred_measurements,
             context=context,
@@ -1299,28 +1245,19 @@ class Simulator:
     ) -> tuple[float, ...]:
         """Contract every observable against one backend-evolved state."""
         state = self._execute_expectation_base(prepared)
-        kernel = (
-            expectation_statevector
-            if self._state_field == "statevector"
-            else expectation_density_matrix
-        )
-        allocation = prepared.execution.lowering.engine_allocation
         terms_by_observable = [[] for _constant in prepared.constants]
         for bound in prepared.bound_occurrences:
-            kernel_factors = tuple(
-                (allocation.n_subsystems - 1 - engine_index, letter)
-                for engine_index, letter in bound.engine_factors
-            )
             terms_by_observable[bound.occurrence.observable_index].append(
-                (bound.occurrence.coefficient, kernel_factors)
+                (bound.occurrence.coefficient, bound.engine_factors)
             )
+        values = self._engine._expectation_values(
+            state,
+            tuple(tuple(terms) for terms in terms_by_observable),
+            policy=prepared.state_policy,
+        )
         return tuple(
-            constant + kernel(state, tuple(terms))
-            for constant, terms in zip(
-                prepared.constants,
-                terms_by_observable,
-                strict=True,
-            )
+            constant + value
+            for constant, value in zip(prepared.constants, values, strict=True)
         )
 
     def _execute_sampled_expectation(
@@ -1352,12 +1289,12 @@ class Simulator:
                 ),
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
-                initial_state=base_state.copy() if base_state is not None else None,
+                initial_state=base_state,
                 initial_occupied=execution.initial_occupied,
             )
             plan = execution.plan
             assert isinstance(plan, tuple)
-            raw = self._execute_engine(
+            raw = self._engine.execute(
                 plan=plan,
                 deferred_measurements=execution.facts.deferred_measurements,
                 context=context,
@@ -1397,7 +1334,7 @@ class Simulator:
             shots=prepared.shots,
         )
         try:
-            raw = self._execute_engine(
+            raw = self._engine.execute(
                 plan=plan,
                 deferred_measurements=prepared.facts.deferred_measurements,
                 context=prepared.execution,
@@ -1424,30 +1361,15 @@ class Simulator:
         request: _ResultRequest,
         shots: int,
     ) -> _ExecutionPolicy:
-        """Resolve execution routing for one concrete prepared plan."""
-        counts_requested = request.counts
-        state_requested = getattr(request, self._state_field)
-        compiled_multi_shot_compatible = False
-        if _should_probe_compiled_multi_shot(
+        """Ask the engine to resolve policy for one concrete prepared plan."""
+        return self._engine.resolve_execution_policy(
+            plan,
             prepared.simulation,
             facts=prepared.facts,
-            counts_requested=counts_requested,
-            state_requested=state_requested,
-            initial_occupied=prepared.initial_occupied,
-        ):
-            compiled_multi_shot_compatible = (
-                self._engine.compiled_multi_shot_compatible(plan)
-            )
-        return _resolve_execution_policy(
-            prepared.simulation,
-            facts=prepared.facts,
-            counts_requested=counts_requested,
-            state_requested=state_requested,
-            capabilities=prepared.capabilities.kernels,
-            compiled_multi_shot_compatible=compiled_multi_shot_compatible,
+            counts_requested=request.counts,
+            state_requested=getattr(request, self._state_field),
             shots=shots,
             initial_occupied=prepared.initial_occupied,
-            plan_is_empty=not plan,
         )
 
     # --- validation (raises directly from run) ---
@@ -1509,6 +1431,7 @@ class Simulator:
         shots: int,
         facts: _PlanFacts,
         *,
+        simulation_config: _SimulationConfig,
         initial_occupied: frozenset[int] | None,
     ) -> _ResultRequest:
         """Validate result-config / shots constraints against the lowered program.
@@ -1516,9 +1439,10 @@ class Simulator:
         Operation support, stochasticity, and semantic execution shape were
         already translated into common facts by the selected backend.
         """
-        self._validate_method_support(
+        self._validate_engine_support(
             config,
             facts,
+            simulation_config=simulation_config,
             initial_occupied=initial_occupied,
         )
         stochastic = facts.stochastic_final_state
@@ -1561,20 +1485,43 @@ class Simulator:
         )
         return request
 
-    def _validate_method_support(
+    def _validate_engine_support(
         self,
         config: _ResultConfig,
         facts: _PlanFacts,
         *,
+        simulation_config: _SimulationConfig,
         initial_occupied: frozenset[int] | None,
     ) -> None:
-        """Reject programs and requests the chosen method cannot represent.
+        """Check the lowered program and controls against engine capabilities.
 
         Raises:
             BackendValidationError: If the lowered program or the result
-                request uses something this method cannot execute.
+                request or controls require unsupported engine capabilities.
         """
         capabilities = self._engine.capabilities
+        # Engine execution support, such as kernel threads, fusion, and process shots.
+        if (
+            simulation_config.kernel_parallelism == "threads"
+            and not capabilities.kernels.supports_kernel_threads
+        ):
+            raise BackendValidationError(
+                "kernel_parallelism='threads' requires an engine with threaded "
+                "numerical kernels"
+            )
+        if simulation_config.fusion and not capabilities.kernels.supports_fusion:
+            raise BackendValidationError(
+                "fusion=True is not supported by the selected matrix engine; fusion "
+                "does not control compiled multi-shot execution"
+            )
+        if (
+            simulation_config.shot_parallelism == "processes"
+            and not capabilities.supports_process_shots
+        ):
+            raise BackendValidationError(
+                "shot_parallelism='processes' is not supported by the selected engine"
+            )
+        # Engine method support, such as measurement, reset, channel noise, and classical register.
         method = self._state_field
         if facts.has_measurement and not capabilities.supports_classical_register:
             if not capabilities.quantum.is_operator:
@@ -1635,25 +1582,6 @@ class Simulator:
         """
 
     # --- execution ---
-    def _execute_engine(
-        self,
-        *,
-        plan: tuple[ResolvedStep, ...],
-        deferred_measurements: tuple[tuple[int, int], ...],
-        context: _ExecutionContext,
-        policy: _ExecutionPolicy,
-    ) -> RawResult[np.ndarray]:
-        """Materialize once in the parent, then dispatch the opaque payload."""
-        local_policy = _materialization_policy(policy)
-        payload = self._engine.materialize_execution(
-            plan,
-            system_dims=context.system_dims,
-            n_clbits=context.n_clbits,
-            deferred_measurements=deferred_measurements,
-            policy=local_policy,
-        )
-        return _dispatch_execution(self._engine, context, payload, policy)
-
     def _assemble_result(
         self,
         *,

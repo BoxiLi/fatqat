@@ -8,12 +8,12 @@ This layer is private and deliberately re-exports nothing. A run crosses the
 boundary as one immutable simulator-owned execution context and one resolved
 policy. The engine configures dimensions, materializes an engine-specific
 payload, and executes that payload only through local or shot-batch entry
-points. The `Simulator` owns route dispatch and public result assembly, so
-numeric engines never select process routes. Engines remain private rather
-than a supported extension point; users reach simulation through
+points. Engines select execution policies and dispatch routes; the `Simulator`
+assembles public results. Engines remain private rather than a supported
+extension point; users reach simulation through
 :class:`fatqat.simulator.Simulator`.
 
 Import the concrete modules directly (``from ._engine.np import
-NumpySVEngine``). ``nb`` is imported lazily by the `Simulator`, since numba
-compilation is only needed when that runtime is selected.
+NumpySVEngine``). The `Simulator` loads the selected runtime module lazily
+when it is constructed.
 """

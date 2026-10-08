@@ -59,15 +59,21 @@ Semantics differences:
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from math import prod
 from typing import Any
 
 import numpy as np
 
-from ..._backends.engine_contract import (
+from ..._expectation import expectation_density_matrix, expectation_statevector
+from .._execution_contract import (
     _ResultRequest as ResultRequest,
     RawResult,
+    _ExecutionContext as ExecutionContext,
+    _KernelCapabilities,
+    _QuantumCapabilities,
+    _TrajectoryCapabilities,
 )
 from ..._backends.steps import (
     ApplyChannelStep,
@@ -81,14 +87,12 @@ from ..._backends.steps import (
 from ...implementation.matrices import shift_matrix
 from ...noise.base import _sampled_unitary_branches
 from ...result import _decode_engine_indices_to_clbit_rows, reduce_to_counts
-from .._execution_contract import (
-    _ExecutionContext as ExecutionContext,
-    _KernelCapabilities,
-    _QuantumCapabilities,
-    _TrajectoryCapabilities,
+from ._execution_policy import (
+    _ExecutionPolicy as ExecutionPolicy,
+    _materialization_policy,
 )
-from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
 from .base import MatrixEngine, _shot_seed_sequences
+from .parallel import _run_shots_in_processes
 
 # What `_sampled_unitary_branches` resolves a channel step to: branch
 # probabilities, unit-norm operators, identity flags - or None for a channel
@@ -264,6 +268,34 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
             initial_state,
         )
 
+    def _expectation_values(
+        self,
+        state: np.ndarray,
+        observables: Sequence[tuple[tuple[float, tuple[tuple[int, str], ...]], ...]],
+        *,
+        policy: ExecutionPolicy,
+    ) -> tuple[float, ...]:
+        kernel = (
+            expectation_statevector
+            if self._state_field == "statevector"
+            else expectation_density_matrix
+        )
+        values = []
+        with self._execution_scope(policy):
+            for terms in observables:
+                kernel_terms = tuple(
+                    (
+                        coefficient,
+                        tuple(
+                            (self.n_subsystems - 1 - index, letter)
+                            for index, letter in factors
+                        ),
+                    )
+                    for coefficient, factors in terms
+                )
+                values.append(kernel(state, kernel_terms))
+        return tuple(values)
+
     @abstractmethod
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         """Return a fresh owned state over ``size`` basis states."""
@@ -310,6 +342,46 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
     def sample_indices(self, shots: int, rng: np.random.Generator) -> np.ndarray:
         """Sample flat basis-state indices from the NumPy quantum buffer."""
         return rng.choice(self.state.shape[0], size=shots, p=self.probabilities())
+
+    def execute(
+        self,
+        plan: tuple[ResolvedStep, ...],
+        *,
+        context: ExecutionContext,
+        deferred_measurements: tuple[tuple[int, int], ...],
+        policy: ExecutionPolicy,
+    ) -> RawResult[np.ndarray]:
+        """Materialize and dispatch a plan through local or CPU process execution."""
+        payload = self.materialize_execution(
+            plan,
+            system_dims=context.system_dims,
+            n_clbits=context.n_clbits,
+            deferred_measurements=deferred_measurements,
+            policy=_materialization_policy(policy),
+        )
+        if policy.shot_strategy in ("none", "serial", "threads"):
+            return self.execute_local(context, payload, policy)
+
+        if policy.shot_strategy != "processes":
+            raise RuntimeError(f"Unknown shot strategy: {policy.shot_strategy!r}")
+        snapshots = _run_shots_in_processes(
+            self._process_engine_factory(), context, payload, policy
+        )
+        rows = np.asarray(snapshots, dtype=int).reshape(
+            (len(snapshots), context.n_clbits)
+        )
+        outcome_keys, outcome_counts = reduce_to_counts(rows)
+        return RawResult(
+            outcome_keys=outcome_keys,
+            outcome_counts=outcome_counts,
+        )
+
+    def _process_engine_factory(self) -> Callable[[], MatrixEngine[np.ndarray]]:
+        """Carry constructor configuration to workers without live execution state.
+
+        Engines with additional constructor options override this hook.
+        """
+        return partial(type(self), name=self.name)
 
     def execute_local(
         self,
@@ -556,12 +628,13 @@ class NumpySVEngine(_NumpyMatrixEngine):
     _trajectory_capabilities = _TrajectoryCapabilities(
         classical_register=True, occupancy=True
     )
+    _supports_process_shots = True
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
 
     def __init__(self, name: str = "numpy-sv"):
-        super().__init__(name, state_semantics="sv")
+        super().__init__(name)
         # Per-step channel route, keyed by id(step) with the step pinned in the
         # value so a recycled id can never alias. Depends on the step's frozen
         # Kraus operators alone, not on system dims, so `initialize` must not
@@ -715,12 +788,13 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     _trajectory_capabilities = _TrajectoryCapabilities(
         classical_register=True, occupancy=True
     )
+    _supports_process_shots = True
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
 
     def __init__(self, name: str = "numpy-dm"):
-        super().__init__(name, state_semantics="dm")
+        super().__init__(name)
 
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         given = initial_state
@@ -924,6 +998,7 @@ class NumpyUnitaryEngine(  # pylint: disable=abstract-method
         nonunitary_is_stochastic=True,
     )
     _trajectory_capabilities = _TrajectoryCapabilities()
+    _supports_process_shots = False
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
@@ -967,6 +1042,7 @@ class NumpySuperopEngine(  # pylint: disable=abstract-method
         "superop", supports_nonunitary=True, nonunitary_is_stochastic=False
     )
     _trajectory_capabilities = _TrajectoryCapabilities()
+    _supports_process_shots = False
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )

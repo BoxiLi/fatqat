@@ -9,7 +9,7 @@ from fatqat.simulator import Simulator
 from fatqat._backends.steps import ApplyChannelStep, ApplyMatrixStep, BuiltinKernelKey
 from fatqat.implementation import default_matrix_implementation_map
 from fatqat.simulator._execution_contract import _ExecutionContext
-from fatqat.simulator._execution_policy import _ExecutionPolicy
+from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
 numba = pytest.importorskip("numba")
 

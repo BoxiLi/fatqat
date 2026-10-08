@@ -1,20 +1,26 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
-from typing import Any, Generic, Literal
+from typing import Any, Generic
 
 import numpy as np
 
-from ..._backends.engine_contract import RawResult
-from ..._backends.steps import ApplyMatrixStep, ResolvedStep
 from .._execution_contract import (
+    RawResult,
+    _SimulationConfig as SimulationConfig,
     _EngineCapabilities,
     _KernelCapabilities,
     _QuantumCapabilities,
     _TrajectoryCapabilities,
     _ExecutionContext as ExecutionContext,
+    _PlanFacts as PlanFacts,
 )
-from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
+from ..._backends.steps import ApplyMatrixStep, ResolvedStep
+from ._execution_policy import (
+    _ExecutionPolicy as ExecutionPolicy,
+    _resolve_execution_policy,
+    _should_probe_compiled_multi_shot,
+)
 from .state import EvolutionState, QuantumDataT, QuantumState
 
 
@@ -34,15 +40,10 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     _quantum_capabilities: _QuantumCapabilities
     _trajectory_capabilities: _TrajectoryCapabilities
     _kernel_capabilities: _KernelCapabilities
+    _supports_process_shots: bool = False
 
-    def __init__(
-        self,
-        name: str,
-        *,
-        state_semantics: Literal["sv", "dm"],
-    ):
+    def __init__(self, name: str):
         self.name = name
-        self.state_semantics = state_semantics
 
         self._evolution_state: EvolutionState[QuantumDataT] | None = None
         self._dims: tuple[int, ...] = ()
@@ -95,11 +96,47 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             quantum=self._quantum_capabilities,
             trajectory=self._trajectory_capabilities,
             kernels=self._kernel_capabilities,
+            supports_process_shots=self._supports_process_shots,
         )
 
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
         """Whether this engine can own the complete per-shot outer loop."""
         return False
+
+    def resolve_execution_policy(
+        self,
+        plan: Sequence[ResolvedStep],
+        simulation: SimulationConfig,
+        *,
+        facts: PlanFacts,
+        counts_requested: bool,
+        state_requested: bool,
+        shots: int,
+        initial_occupied: frozenset[int] | None,
+    ) -> ExecutionPolicy:
+        """Choose execution paths for a plan using this engine's support."""
+        compiled_multi_shot_compatible = False
+        if _should_probe_compiled_multi_shot(
+            simulation,
+            facts=facts,
+            counts_requested=counts_requested,
+            state_requested=state_requested,
+            initial_occupied=initial_occupied,
+        ):
+            compiled_multi_shot_compatible = self.compiled_multi_shot_compatible(plan)
+        capabilities = self.capabilities
+        return _resolve_execution_policy(
+            simulation,
+            facts=facts,
+            counts_requested=counts_requested,
+            state_requested=state_requested,
+            capabilities=capabilities.kernels,
+            supports_process_shots=capabilities.supports_process_shots,
+            compiled_multi_shot_compatible=compiled_multi_shot_compatible,
+            shots=shots,
+            initial_occupied=initial_occupied,
+            plan_is_empty=not plan,
+        )
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         """Configure dimensions without allocating an evolving state."""
@@ -113,9 +150,9 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         system_dims: Sequence[int],
         n_clbits: int = 0,
         *,
-        initial_state: np.ndarray | None = None,
+        initial_state: np.ndarray | QuantumDataT | None = None,
     ) -> None:
-        """Allocate fresh runtime storage, copying any NumPy initial state."""
+        """Allocate fresh storage, leaving host or native initial state unchanged."""
 
     def _set_dims(self, system_dims: Sequence[int]) -> None:
         """Set ``_dims`` and its cached reverse together, so they never drift apart."""
@@ -153,6 +190,17 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         concurrent calls safe.
         """
         return nullcontext()
+
+    @abstractmethod
+    def execute(
+        self,
+        plan: tuple[ResolvedStep, ...],
+        *,
+        context: ExecutionContext,
+        deferred_measurements: tuple[tuple[int, int], ...],
+        policy: ExecutionPolicy,
+    ) -> RawResult[QuantumDataT]:
+        """Materialize and execute a plan under the resolved execution policy."""
 
     @abstractmethod
     def execute_local(
@@ -208,6 +256,20 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     @abstractmethod
     def apply(self, step: ApplyMatrixStep) -> None:
         """Apply a single matrix step to the internal state in place."""
+
+    def _expectation_values(
+        self,
+        state: QuantumDataT,
+        observables: Sequence[tuple[tuple[float, tuple[tuple[int, str], ...]], ...]],
+        *,
+        policy: ExecutionPolicy,
+    ) -> tuple[float, ...]:
+        """Evaluate Pauli sums on native state without modifying it.
+
+        Factors use engine subsystem indices. Return host scalars and keep
+        numerical work within the runtime's execution scope.
+        """
+        raise NotImplementedError
 
     def export_state(self) -> QuantumDataT:
         """Return state data in runtime-native storage for further processing.

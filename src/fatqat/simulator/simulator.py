@@ -136,10 +136,9 @@ class _PreparedExecution:
 
     plan: tuple[ResolvedStep, ...] | planning._ParametricPlan
     facts: _PlanFacts
-    initial_occupied: frozenset[int] | None
     lowering: _LoweringContext
     simulation: _SimulationConfig
-    initial_state: np.ndarray | None
+    initial_state: _InitialEvolutionState[np.ndarray]
 
 
 @dataclass(frozen=True, slots=True)
@@ -473,20 +472,15 @@ class Simulator:
         through unchanged, so lowering never re-resolves either. When omitted
         (standalone use, e.g. in tests), both are resolved once here.
         """
-        plan, facts, _initial_occupied = self._prepare_program(program, context=context)
-        return plan, facts
+        return self._prepare_program(program, context=context)
 
     def _prepare_program(
         self,
         program: Program,
         *,
         context: _LoweringContext | None = None,
-    ) -> tuple[
-        tuple[ResolvedStep, ...],
-        _PlanFacts,
-        frozenset[int] | None,
-    ]:
-        """Lower and freeze once, then derive common facts and occupancy."""
+    ) -> tuple[tuple[ResolvedStep, ...], _PlanFacts]:
+        """Lower and freeze once, then derive common plan facts."""
         if context is None:
             resource_layout = self._resolve_resource_layout(program)
             context = _LoweringContext(
@@ -498,8 +492,7 @@ class Simulator:
             )
         operations = _break_grouped_operations(program._instructions)
         plan = tuple(self._lower(operations, context))
-        facts, initial_occupied = self._analyze_lowered_plan(plan)
-        return plan, facts, initial_occupied
+        return plan, self._analyze_lowered_plan(plan)
 
     def _prepare_parametric_program(
         self,
@@ -507,7 +500,7 @@ class Simulator:
         *,
         context: _LoweringContext,
         param_order: tuple[Parameter, ...],
-    ) -> tuple[planning._ParametricPlan, _PlanFacts, frozenset[int] | None]:
+    ) -> tuple[planning._ParametricPlan, _PlanFacts]:
         """Lower once for a sweep, deferring parameter-holding gates.
 
         The sweep counterpart of ``_prepare_program``: the same single lowering
@@ -518,8 +511,9 @@ class Simulator:
         """
         operations = _break_grouped_operations(program._instructions)
         steps = tuple(self._lower(operations, context, param_order=param_order))
-        facts, initial_occupied = self._analyze_lowered_plan(steps)
-        return planning._ParametricPlan(steps, param_order), facts, initial_occupied
+        return planning._ParametricPlan(steps, param_order), self._analyze_lowered_plan(
+            steps
+        )
 
     def run(
         self,
@@ -817,16 +811,12 @@ class Simulator:
             simulation=simulation,
             param_order=param_order,
         )
-        initial_state = _InitialEvolutionState(
-            quantum=prepared.initial_state,
-            classical=_InitialClassicalState(occupied=prepared.initial_occupied),
-        )
         request = self._validate(
             config,
             shots,
             prepared.facts,
             simulation_config=simulation,
-            initial_classical=initial_state.classical,
+            initial_classical=prepared.initial_state.classical,
             n_clbits=prepared.lowering.classical_allocation.n_clbits,
         )
         self._validate_additional_config(
@@ -842,12 +832,11 @@ class Simulator:
             n_clbits=prepared.lowering.classical_allocation.n_clbits,
             shots=shots,
             seed=simulation.seed,
-            initial_state=initial_state,
+            initial_state=prepared.initial_state,
         )
         return _PreparedRun(
             plan=prepared.plan,
             facts=prepared.facts,
-            initial_occupied=prepared.initial_occupied,
             lowering=prepared.lowering,
             simulation=prepared.simulation,
             initial_state=prepared.initial_state,
@@ -896,21 +885,24 @@ class Simulator:
         )
         plan: tuple[ResolvedStep, ...] | planning._ParametricPlan
         if param_order is None:
-            plan, facts, initial_occupied = self._prepare_program(
-                program, context=lowering
-            )
+            plan, facts = self._prepare_program(program, context=lowering)
         else:
-            plan, facts, initial_occupied = self._prepare_parametric_program(
+            plan, facts = self._prepare_parametric_program(
                 program, context=lowering, param_order=param_order
             )
         return _PreparedExecution(
             plan=plan,
             facts=facts,
-            initial_occupied=initial_occupied,
             lowering=lowering,
             simulation=simulation,
-            initial_state=initial_state,
+            initial_state=self._prepare_initial_state(initial_state),
         )
+
+    def _prepare_initial_state(
+        self, quantum: np.ndarray | None
+    ) -> _InitialEvolutionState[np.ndarray]:
+        """Wrap normalized quantum input; subclasses supply classical components."""
+        return _InitialEvolutionState(quantum=quantum)
 
     def _run_expectation(
         self,
@@ -1063,9 +1055,7 @@ class Simulator:
             self._result_config_cls(),
             execution.facts,
             simulation_config=execution.simulation,
-            initial_classical=_InitialClassicalState(
-                occupied=execution.initial_occupied
-            ),
+            initial_classical=execution.initial_state.classical,
             n_clbits=execution.lowering.classical_allocation.n_clbits,
         )
         if shots > 0 and not self._engine.capabilities.supports_classical_register:
@@ -1105,16 +1095,22 @@ class Simulator:
         for bound in bound_occurrences:
             if execution.facts.stochastic_final_state:
                 sample_plan = plan + bound.tail
-                sample_facts, sample_occupied = self._analyze_lowered_plan(sample_plan)
+                sample_facts = self._analyze_lowered_plan(sample_plan)
+                sample_initial = execution.initial_state
             else:
                 sample_plan = bound.tail
                 sample_facts = self._analyze_common_plan_facts(sample_plan)
-                sample_occupied = terminal_occupied
+                sample_initial = replace(
+                    execution.initial_state,
+                    classical=replace(
+                        execution.initial_state.classical, occupied=terminal_occupied
+                    ),
+                )
             sample_execution = replace(
                 execution,
                 plan=sample_plan,
                 facts=sample_facts,
-                initial_occupied=sample_occupied,
+                initial_state=sample_initial,
             )
             samples.append(
                 _PreparedExpectationSample(
@@ -1207,9 +1203,9 @@ class Simulator:
         execution: _PreparedExecution,
     ) -> frozenset[int] | None:
         """Return deterministic terminal occupancy for a prepared base plan."""
-        if execution.initial_occupied is None:
+        if execution.initial_state.classical.occupied is None:
             return None
-        occupied = set(execution.initial_occupied)
+        occupied = set(execution.initial_state.classical.occupied)
         for step in execution.plan:
             if isinstance(step, PutStep) and (
                 step.condition is None
@@ -1235,10 +1231,7 @@ class Simulator:
             n_clbits=execution.lowering.classical_allocation.n_clbits,
             shots=1,
             seed=execution.simulation.seed,
-            initial_state=_InitialEvolutionState(
-                quantum=execution.initial_state,
-                classical=_InitialClassicalState(occupied=execution.initial_occupied),
-            ),
+            initial_state=execution.initial_state,
         )
         raw = self._engine.execute(
             plan=plan,
@@ -1300,11 +1293,10 @@ class Simulator:
                 ),
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
-                initial_state=_InitialEvolutionState(
-                    quantum=base_state,
-                    classical=_InitialClassicalState(
-                        occupied=execution.initial_occupied
-                    ),
+                initial_state=(
+                    replace(execution.initial_state, quantum=base_state)
+                    if prepared.state_policy is not None
+                    else execution.initial_state
                 ),
             )
             plan = execution.plan
@@ -1384,10 +1376,7 @@ class Simulator:
             counts_requested=request.counts,
             state_requested=getattr(request, self._state_field),
             shots=shots,
-            initial_state=_InitialEvolutionState(
-                quantum=prepared.initial_state,
-                classical=_InitialClassicalState(occupied=prepared.initial_occupied),
-            ),
+            initial_state=prepared.initial_state,
         )
 
     # --- validation (raises directly from run) ---
@@ -1760,9 +1749,9 @@ class Simulator:
 
     def _analyze_lowered_plan(
         self, plan: Sequence[ResolvedStep | planning._MatrixRecipe]
-    ) -> tuple[_PlanFacts, frozenset[int] | None]:
-        """Translate one lowered plan into common semantics and occupancy."""
-        return self._analyze_common_plan_facts(plan), None
+    ) -> _PlanFacts:
+        """Translate one lowered plan into common execution semantics."""
+        return self._analyze_common_plan_facts(plan)
 
     def _analyze_common_plan_facts(
         self,

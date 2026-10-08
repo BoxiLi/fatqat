@@ -223,16 +223,15 @@ def test_conditional_unpair_rejected():
 # --- Put atom lifecycle -------------------------------------------------------
 
 
-def test_atom_lifecycle_translates_to_common_facts_and_occupancy():
+def test_atom_lifecycle_translates_to_common_facts():
     program = Program(1)
     program.add(ops.Put, 0)
 
-    _plan, facts, occupied = AtomArraySimulator()._prepare_program(program)
+    _plan, facts = AtomArraySimulator()._prepare_program(program)
 
     assert facts.execution_shape == "per_shot"
     assert facts.stochastic_final_state is False
     assert facts.deferred_measurements == ()
-    assert occupied == frozenset()
 
 
 def test_atom_loss_translates_to_stochastic_per_shot_execution():
@@ -242,11 +241,10 @@ def test_atom_loss_translates_to_stochastic_per_shot_execution():
     program.add(ops.Put, 0)
     program.add(ops.RX(0.1), 0)
 
-    _plan, facts, occupied = AtomArraySimulator(noise=noise)._prepare_program(program)
+    _plan, facts = AtomArraySimulator(noise=noise)._prepare_program(program)
 
     assert facts.execution_shape == "per_shot"
     assert facts.stochastic_final_state is True
-    assert occupied == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -268,7 +266,7 @@ def test_atom_extension_steps_preserve_conditions(step_kind, step_type):
     extension = next(step for step in plan if isinstance(step, step_type))
 
     assert extension.condition == ((0, 0),)
-    facts, _occupied = backend._analyze_lowered_plan((extension,))
+    facts = backend._analyze_lowered_plan((extension,))
     assert facts.execution_shape == "per_shot"
     assert facts.has_condition is True
 
@@ -308,7 +306,7 @@ def test_gate_before_put_executes_while_empty(runtime):
     assert counts.result().get_counts() == {"2": 8}
 
 
-def test_engine_without_occupancy_rejects_even_an_empty_site(monkeypatch):
+def test_engine_without_occupancy_accepts_only_implicit_occupancy(monkeypatch):
     backend = AtomArraySimulator(runtime="numpy")
     trajectory = backend._engine.capabilities.trajectory
     monkeypatch.setattr(
@@ -318,6 +316,10 @@ def test_engine_without_occupancy_rejects_even_an_empty_site(monkeypatch):
     )
     program = Program(1, 1)
     program.measure(0, 0)
+
+    standard = Simulator(runtime="numpy")
+    standard._engine = backend._engine
+    assert standard.run(program, shots=1).result().get_counts() == {"0": 1}
 
     with pytest.raises(BackendValidationError, match="cannot track carrier occupancy"):
         backend.run(program)

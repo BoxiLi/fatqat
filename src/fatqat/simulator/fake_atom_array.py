@@ -28,12 +28,18 @@ from .._backends.steps import (
     PutStep,
 )
 from ._connectivity import _AtomConnectivity
-from ._execution_contract import _PlanFacts
+from ._execution_contract import (
+    _InitialClassicalState,
+    _InitialEvolutionState,
+    _PlanFacts,
+)
 from .planning import _lower_channels, _lower_put
 from .simulator import Simulator
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    import numpy as np
 
     from ..implementation import MatrixImplementation
     from ..operations import Operation
@@ -262,6 +268,15 @@ class AtomArraySimulator(Simulator):
         """Return the empty per-shot occupancy seed for this atom array."""
         return frozenset()
 
+    def _prepare_initial_state(
+        self, quantum: np.ndarray | None
+    ) -> _InitialEvolutionState[np.ndarray]:
+        """Start each trajectory with the atom array's initial occupancy."""
+        return _InitialEvolutionState(
+            quantum=quantum,
+            classical=_InitialClassicalState(occupied=self._initial_occupancy()),
+        )
+
     def _lower_segment(
         self,
         segment: Sequence[ProgramInstruction],
@@ -371,22 +386,19 @@ class AtomArraySimulator(Simulator):
                 "silently per shot."
             )
 
-    def _analyze_lowered_plan(
-        self, plan: tuple[ResolvedStep, ...]
-    ) -> tuple[_PlanFacts, frozenset[int] | None]:
+    def _analyze_lowered_plan(self, plan: tuple[ResolvedStep, ...]) -> _PlanFacts:
         """Translate atom lifecycle semantics into common plan consequences."""
         common = self._analyze_common_plan_facts(
             plan,
             claimed_step_types=(LossStep, PutStep),
         )
         has_loss = any(isinstance(step, LossStep) for step in plan)
-        translated = replace(
+        return replace(
             common,
             execution_shape="per_shot",
             deferred_measurements=(),
             stochastic_final_state=common.stochastic_final_state or has_loss,
         )
-        return translated, self._initial_occupancy()
 
     def _apply_pairing(
         self, connectivity: _AtomConnectivity, applied: _AppliedOperation

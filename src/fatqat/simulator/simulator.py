@@ -74,8 +74,6 @@ from . import planning
 from ._execution_contract import (
     _ExecutionContext,
     _PlanFacts,
-)
-from .._backends.engine_contract import (
     RawResult,
     _DensityMatrixResultRequest,
     _ResultRequest,

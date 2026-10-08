@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from fatqat._backends.engine_contract import (
+from fatqat.simulator._execution_contract import (
     _StateVectorResultRequest,
+    _ExecutionContext,
 )
 from fatqat._backends.steps import (
     ApplyMatrixStep,
@@ -12,7 +13,6 @@ from fatqat._backends.steps import (
     ResetStep,
 )
 from fatqat.simulator._engine.np import NumpySVEngine
-from fatqat.simulator._execution_contract import _ExecutionContext
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
 _SERIAL = _ExecutionPolicy(

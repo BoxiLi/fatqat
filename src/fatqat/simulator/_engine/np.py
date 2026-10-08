@@ -67,9 +67,13 @@ from typing import Any
 import numpy as np
 
 from ..._expectation import expectation_density_matrix, expectation_statevector
-from ..._backends.engine_contract import (
+from .._execution_contract import (
     _ResultRequest as ResultRequest,
     RawResult,
+    _ExecutionContext as ExecutionContext,
+    _KernelCapabilities,
+    _QuantumCapabilities,
+    _TrajectoryCapabilities,
 )
 from ..._backends.steps import (
     ApplyChannelStep,
@@ -83,12 +87,6 @@ from ..._backends.steps import (
 from ...implementation.matrices import shift_matrix
 from ...noise.base import _sampled_unitary_branches
 from ...result import _decode_engine_indices_to_clbit_rows, reduce_to_counts
-from .._execution_contract import (
-    _ExecutionContext as ExecutionContext,
-    _KernelCapabilities,
-    _QuantumCapabilities,
-    _TrajectoryCapabilities,
-)
 from ._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _materialization_policy,

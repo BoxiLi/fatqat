@@ -5,12 +5,9 @@ from typing import Any, Generic
 
 import numpy as np
 
-from ..._backends.engine_contract import (
+from .._execution_contract import (
     RawResult,
     _SimulationConfig as SimulationConfig,
-)
-from ..._backends.steps import ApplyMatrixStep, ResolvedStep
-from .._execution_contract import (
     _EngineCapabilities,
     _KernelCapabilities,
     _QuantumCapabilities,
@@ -18,6 +15,7 @@ from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
     _PlanFacts as PlanFacts,
 )
+from ..._backends.steps import ApplyMatrixStep, ResolvedStep
 from ._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _resolve_execution_policy,

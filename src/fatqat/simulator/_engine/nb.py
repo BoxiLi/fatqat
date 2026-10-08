@@ -95,8 +95,12 @@ import numpy as np
 from numba import config as numba_config
 from numba import get_num_threads, njit, prange, set_num_threads
 
-from ..._backends.engine_contract import (
+from .._execution_contract import (
     RawResult,
+    _ExecutionContext as ExecutionContext,
+    _KernelCapabilities,
+    _QuantumCapabilities,
+    _TrajectoryCapabilities,
 )
 from ..._backends.steps import (
     ApplyChannelStep,
@@ -118,12 +122,6 @@ from ...noise.nb import (
     _report_digit_kernel,
 )
 from ...result import reduce_to_counts
-from .._execution_contract import (
-    _ExecutionContext as ExecutionContext,
-    _KernelCapabilities,
-    _QuantumCapabilities,
-    _TrajectoryCapabilities,
-)
 from ._execution_policy import _ExecutionPolicy as ExecutionPolicy
 from .base import _shot_seed_sequences
 from .np import (

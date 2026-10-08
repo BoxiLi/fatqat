@@ -66,6 +66,7 @@ from typing import Any
 
 import numpy as np
 
+from ..._expectation import expectation_density_matrix, expectation_statevector
 from ..._backends.engine_contract import (
     _ResultRequest as ResultRequest,
     RawResult,
@@ -268,6 +269,34 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
             prod(self._dims) if self._dims else 1,
             initial_state,
         )
+
+    def _expectation_values(
+        self,
+        state: np.ndarray,
+        observables: Sequence[tuple[tuple[float, tuple[tuple[int, str], ...]], ...]],
+        *,
+        policy: ExecutionPolicy,
+    ) -> tuple[float, ...]:
+        kernel = (
+            expectation_statevector
+            if self._state_field == "statevector"
+            else expectation_density_matrix
+        )
+        values = []
+        with self._execution_scope(policy):
+            for terms in observables:
+                kernel_terms = tuple(
+                    (
+                        coefficient,
+                        tuple(
+                            (self.n_subsystems - 1 - index, letter)
+                            for index, letter in factors
+                        ),
+                    )
+                    for coefficient, factors in terms
+                )
+                values.append(kernel(state, kernel_terms))
+        return tuple(values)
 
     @abstractmethod
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:

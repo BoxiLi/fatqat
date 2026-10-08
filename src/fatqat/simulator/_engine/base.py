@@ -158,9 +158,9 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         system_dims: Sequence[int],
         n_clbits: int = 0,
         *,
-        initial_state: np.ndarray | None = None,
+        initial_state: np.ndarray | QuantumDataT | None = None,
     ) -> None:
-        """Allocate fresh runtime storage, copying any NumPy initial state."""
+        """Allocate fresh storage, leaving host or native initial state unchanged."""
 
     def _set_dims(self, system_dims: Sequence[int]) -> None:
         """Set ``_dims`` and its cached reverse together, so they never drift apart."""
@@ -264,6 +264,20 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     @abstractmethod
     def apply(self, step: ApplyMatrixStep) -> None:
         """Apply a single matrix step to the internal state in place."""
+
+    def _expectation_values(
+        self,
+        state: QuantumDataT,
+        observables: Sequence[tuple[tuple[float, tuple[tuple[int, str], ...]], ...]],
+        *,
+        policy: ExecutionPolicy,
+    ) -> tuple[float, ...]:
+        """Evaluate Pauli sums on native state without modifying it.
+
+        Factors use engine subsystem indices. Return host scalars and keep
+        numerical work within the runtime's execution scope.
+        """
+        raise NotImplementedError
 
     def export_state(self) -> QuantumDataT:
         """Return state data in runtime-native storage for further processing.

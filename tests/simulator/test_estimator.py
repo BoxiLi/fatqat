@@ -22,10 +22,14 @@ class _ReversedAllocationSimulator(Simulator):
         )
 
 
-def test_estimator_remaps_logical_factors_through_engine_allocation():
+@pytest.mark.parametrize("runtime", ["numpy", "numba"])
+@pytest.mark.parametrize("method", ["statevector", "density_matrix"])
+def test_estimator_remaps_logical_factors_through_engine_allocation(runtime, method):
     program = fq.Program(2)
     program.add(ops.X, 0)
-    estimator = fq.Estimator(_ReversedAllocationSimulator(runtime="numpy"))
+    estimator = fq.Estimator(
+        _ReversedAllocationSimulator(runtime=runtime, method=method)
+    )
 
     result = estimator.run(program, Observable([("ZI", 1.0)])).result()
 
@@ -100,3 +104,20 @@ def test_atom_array_identity_cannot_bypass_structural_loss(shots):
 
     with pytest.raises(UnsupportedOperationError, match="carrier loss"):
         estimator.run(program, Observable([("I", 1.0)]), shots=shots)
+
+
+@pytest.mark.parametrize("runtime", ["numpy", "numba"])
+@pytest.mark.parametrize("method", ["statevector", "density_matrix"])
+def test_sampled_observables_start_from_independent_base_states(runtime, method):
+    program = fq.Program(2)
+    program.add(ops.H, 0)
+    program.add(ops.CX, (0, 1))
+    estimator = fq.Estimator(Simulator(runtime=runtime, method=method))
+    observables = [Observable([(label, 1.0)]) for label in ("XX", "YY", "ZZ", "XX")]
+
+    result = estimator.run(
+        program, observables, shots=32, simulation_config={"seed": 7}
+    ).result()
+
+    assert result.get_expectation() == pytest.approx([1.0, -1.0, 1.0, 1.0])
+    assert result.get_standard_error() == pytest.approx([0.0] * 4)

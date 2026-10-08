@@ -19,8 +19,6 @@ from .._expectation import (
     _combine_term_statistics,
     _plan_term_occurrences,
     _reduce_outcome_counts,
-    expectation_density_matrix,
-    expectation_statevector,
 )
 from .._parameter_binding import (
     _discover_parameters,
@@ -1227,8 +1225,8 @@ class Simulator:
     def _execute_expectation_base(
         self,
         prepared: _PreparedExpectation,
-    ) -> np.ndarray:
-        """Execute the prepared base plan once and return its internal state."""
+    ) -> Any:
+        """Execute the base plan once and borrow its runtime-native state."""
         execution = prepared.execution
         plan = execution.plan
         assert isinstance(plan, tuple)
@@ -1260,28 +1258,19 @@ class Simulator:
     ) -> tuple[float, ...]:
         """Contract every observable against one backend-evolved state."""
         state = self._execute_expectation_base(prepared)
-        kernel = (
-            expectation_statevector
-            if self._state_field == "statevector"
-            else expectation_density_matrix
-        )
-        allocation = prepared.execution.lowering.engine_allocation
         terms_by_observable = [[] for _constant in prepared.constants]
         for bound in prepared.bound_occurrences:
-            kernel_factors = tuple(
-                (allocation.n_subsystems - 1 - engine_index, letter)
-                for engine_index, letter in bound.engine_factors
-            )
             terms_by_observable[bound.occurrence.observable_index].append(
-                (bound.occurrence.coefficient, kernel_factors)
+                (bound.occurrence.coefficient, bound.engine_factors)
             )
+        values = self._engine._expectation_values(
+            state,
+            tuple(tuple(terms) for terms in terms_by_observable),
+            policy=prepared.state_policy,
+        )
         return tuple(
-            constant + kernel(state, tuple(terms))
-            for constant, terms in zip(
-                prepared.constants,
-                terms_by_observable,
-                strict=True,
-            )
+            constant + value
+            for constant, value in zip(prepared.constants, values, strict=True)
         )
 
     def _execute_sampled_expectation(
@@ -1313,7 +1302,7 @@ class Simulator:
                 ),
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
-                initial_state=base_state.copy() if base_state is not None else None,
+                initial_state=base_state,
                 initial_occupied=execution.initial_occupied,
             )
             plan = execution.plan

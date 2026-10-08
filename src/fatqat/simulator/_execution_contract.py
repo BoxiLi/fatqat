@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Generic, Literal
 
 import numpy as np
 
-from .._backends.engine_contract import _ResultRequest
+from .._backends.engine_contract import StateDataT, _ResultRequest
 
 ExecutionShape = Literal["operator", "single_pass", "per_shot"]
 
@@ -93,7 +93,7 @@ class _EngineCapabilities:
 
 
 @dataclass(frozen=True, slots=True)
-class _ExecutionContext:
+class _ExecutionContext(Generic[StateDataT]):
     """Semantic and numerical values executed under a resolved policy."""
 
     execution_shape: ExecutionShape
@@ -102,5 +102,6 @@ class _ExecutionContext:
     n_clbits: int
     shots: int
     seed: int | None
-    initial_state: np.ndarray | None
+    # Normalized host input or borrowed native state; execution owns its copy.
+    initial_state: np.ndarray | StateDataT | None
     initial_occupied: frozenset[int] | None

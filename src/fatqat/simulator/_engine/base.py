@@ -22,6 +22,7 @@ from ._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _resolve_execution_policy,
     _should_probe_compiled_multi_shot,
+    _validate_execution_controls,
 )
 from .state import EvolutionState, QuantumDataT, QuantumState
 
@@ -109,6 +110,10 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         """Whether this engine can own the complete per-shot outer loop."""
         return False
 
+    def _validate_execution_controls(self, simulation: SimulationConfig) -> None:
+        """Reject unsupported runtime controls before program lowering."""
+        _validate_execution_controls(simulation, self.capabilities.kernels)
+
     def resolve_execution_policy(
         self,
         plan: Sequence[ResolvedStep],
@@ -194,6 +199,17 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         concurrent calls safe.
         """
         return nullcontext()
+
+    @abstractmethod
+    def execute(
+        self,
+        plan: tuple[ResolvedStep, ...],
+        *,
+        context: ExecutionContext,
+        deferred_measurements: tuple[tuple[int, int], ...],
+        policy: ExecutionPolicy,
+    ) -> RawResult[QuantumDataT]:
+        """Materialize and execute a plan under the resolved execution policy."""
 
     @abstractmethod
     def execute_local(

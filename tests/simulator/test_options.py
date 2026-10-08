@@ -21,6 +21,7 @@ from fatqat.simulator._engine._execution_policy import (
 )
 from fatqat.errors import BackendValidationError
 from fatqat.simulator import Simulator
+from fatqat.simulator._engine.np import NumpySVEngine
 
 
 @pytest.mark.parametrize(
@@ -94,6 +95,29 @@ def test_kernel_threads_require_engine_support_before_execution():
         Simulator("unitary", runtime="numpy").run(
             program, simulation_config={"kernel_parallelism": "threads"}
         )
+
+
+@pytest.mark.parametrize("sweep", [False, True])
+def test_engine_runtime_limits_are_validated_before_execution(sweep):
+    class WorkerLimitedEngine(NumpySVEngine):
+        def _validate_execution_controls(self, simulation):
+            super()._validate_execution_controls(simulation)
+            if simulation.max_workers is not None and simulation.max_workers > 2:
+                raise BackendValidationError("runtime supports at most two workers")
+
+    backend = Simulator("SV", runtime="numpy")
+    backend._engine = WorkerLimitedEngine()
+    program = fq.Program(1)
+    theta = fq.Parameter("theta")
+    program.add(ops.RX(theta if sweep else 0.1), 0)
+
+    with pytest.raises(BackendValidationError, match="at most two workers"):
+        if sweep:
+            backend.run_sweep(
+                program, {theta: [0.1, 0.2]}, simulation_config={"max_workers": 3}
+            )
+        else:
+            backend.run(program, simulation_config={"max_workers": 3})
 
 
 def test_materialization_failure_belongs_to_the_job(monkeypatch):

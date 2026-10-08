@@ -87,8 +87,12 @@ from .._execution_contract import (
     _QuantumCapabilities,
     _TrajectoryCapabilities,
 )
-from ._execution_policy import _ExecutionPolicy as ExecutionPolicy
+from ._execution_policy import (
+    _ExecutionPolicy as ExecutionPolicy,
+    _materialization_policy,
+)
 from .base import MatrixEngine, _shot_seed_sequences
+from .parallel import _run_shots_in_processes
 
 # What `_sampled_unitary_branches` resolves a channel step to: branch
 # probabilities, unit-norm operators, identity flags - or None for a channel
@@ -310,6 +314,37 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
     def sample_indices(self, shots: int, rng: np.random.Generator) -> np.ndarray:
         """Sample flat basis-state indices from the NumPy quantum buffer."""
         return rng.choice(self.state.shape[0], size=shots, p=self.probabilities())
+
+    def execute(
+        self,
+        plan: tuple[ResolvedStep, ...],
+        *,
+        context: ExecutionContext,
+        deferred_measurements: tuple[tuple[int, int], ...],
+        policy: ExecutionPolicy,
+    ) -> RawResult[np.ndarray]:
+        """Materialize and dispatch a plan through local or CPU process execution."""
+        payload = self.materialize_execution(
+            plan,
+            system_dims=context.system_dims,
+            n_clbits=context.n_clbits,
+            deferred_measurements=deferred_measurements,
+            policy=_materialization_policy(policy),
+        )
+        if policy.shot_strategy in ("none", "serial", "threads"):
+            return self.execute_local(context, payload, policy)
+
+        if policy.shot_strategy != "processes":
+            raise RuntimeError(f"Unknown shot strategy: {policy.shot_strategy!r}")
+        snapshots = _run_shots_in_processes(type(self), context, payload, policy)
+        rows = np.asarray(snapshots, dtype=int).reshape(
+            (len(snapshots), context.n_clbits)
+        )
+        outcome_keys, outcome_counts = reduce_to_counts(rows)
+        return RawResult(
+            outcome_keys=outcome_keys,
+            outcome_counts=outcome_counts,
+        )
 
     def execute_local(
         self,

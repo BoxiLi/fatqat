@@ -57,10 +57,8 @@ from ..result import (
     Result,
     _ResultConfig,
     counts_dict_from_arrays,
-    reduce_to_counts,
 )
 from ._engine.base import MatrixEngine, _shot_seed_sequences
-from ._engine.parallel import _run_shots_in_processes
 from ._engine.np import (
     NumpyDMEngine,
     NumpySuperopEngine,
@@ -89,11 +87,7 @@ from .._backends.engine_contract import (
     _SuperopResultRequest,
     _UnitaryResultRequest,
 )
-from ._engine._execution_policy import (
-    _ExecutionPolicy,
-    _materialization_policy,
-    _validate_execution_controls,
-)
+from ._engine._execution_policy import _ExecutionPolicy
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
 from .._backends.steps import (
     ApplyChannelStep,
@@ -104,38 +98,6 @@ from .._backends.steps import (
     ResetStep,
     ResolvedStep,
 )
-
-
-def _dispatch_execution(
-    engine: MatrixEngine,
-    context: _ExecutionContext,
-    payload: Any,
-    policy: _ExecutionPolicy,
-) -> RawResult[np.ndarray]:
-    """Dispatch one prepared execution without leaking routes into engines."""
-    state_requested = any(
-        getattr(context.request, field, False)
-        for field in ("statevector", "density_matrix", "unitary", "superop")
-    )
-    if policy.use_compiled_multi_shot_kernel:
-        assert context.execution_shape == "per_shot"
-        assert context.request.counts and not state_requested
-        assert context.initial_occupied is None
-
-    if policy.shot_strategy in ("none", "serial", "threads"):
-        return engine.execute_local(context, payload, policy)
-
-    assert policy.use_compiled_multi_shot_kernel is False
-    assert policy.shot_strategy == "processes"
-    assert context.execution_shape == "per_shot"
-    assert context.request.counts and not state_requested
-    snapshots = _run_shots_in_processes(type(engine), context, payload, policy)
-    rows = np.asarray(snapshots, dtype=int).reshape((len(snapshots), context.n_clbits))
-    outcome_keys, outcome_counts = reduce_to_counts(rows)
-    return RawResult(
-        outcome_keys=outcome_keys,
-        outcome_counts=outcome_counts,
-    )
 
 
 @dataclass(frozen=True)
@@ -912,7 +874,7 @@ class Simulator:
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
         capabilities = self._engine.capabilities
-        _validate_execution_controls(simulation, capabilities.kernels)
+        self._engine._validate_execution_controls(simulation)
         # Both hooks are resolved exactly once per run, before any execution
         # try block: capacity, dimension, grid-fit, and mapping failures must
         # raise directly, never become a failed Job. The resource layout is the
@@ -1626,16 +1588,13 @@ class Simulator:
         context: _ExecutionContext,
         policy: _ExecutionPolicy,
     ) -> RawResult[np.ndarray]:
-        """Materialize once in the parent, then dispatch the opaque payload."""
-        local_policy = _materialization_policy(policy)
-        payload = self._engine.materialize_execution(
+        """Delegate preparation and execution to the selected engine."""
+        return self._engine.execute(
             plan,
-            system_dims=context.system_dims,
-            n_clbits=context.n_clbits,
+            context=context,
             deferred_measurements=deferred_measurements,
-            policy=local_policy,
+            policy=policy,
         )
-        return _dispatch_execution(self._engine, context, payload, policy)
 
     def _assemble_result(
         self,

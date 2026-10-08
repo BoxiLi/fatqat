@@ -831,7 +831,7 @@ class Simulator:
             config,
             shots,
             prepared.facts,
-            simulation=simulation,
+            simulation_config=simulation,
             initial_occupied=prepared.initial_occupied,
         )
         self._validate_additional_config(
@@ -1071,7 +1071,7 @@ class Simulator:
         self._validate_engine_support(
             self._result_config_cls(),
             execution.facts,
-            simulation=execution.simulation,
+            simulation_config=execution.simulation,
             initial_occupied=execution.initial_occupied,
         )
         if shots > 0 and not execution.capabilities.supports_classical_register:
@@ -1455,7 +1455,7 @@ class Simulator:
         shots: int,
         facts: _PlanFacts,
         *,
-        simulation: _SimulationConfig,
+        simulation_config: _SimulationConfig,
         initial_occupied: frozenset[int] | None,
     ) -> _ResultRequest:
         """Validate result-config / shots constraints against the lowered program.
@@ -1466,7 +1466,7 @@ class Simulator:
         self._validate_engine_support(
             config,
             facts,
-            simulation=simulation,
+            simulation_config=simulation_config,
             initial_occupied=initial_occupied,
         )
         stochastic = facts.stochastic_final_state
@@ -1514,7 +1514,7 @@ class Simulator:
         config: _ResultConfig,
         facts: _PlanFacts,
         *,
-        simulation: _SimulationConfig,
+        simulation_config: _SimulationConfig,
         initial_occupied: frozenset[int] | None,
     ) -> None:
         """Check the lowered program and controls against engine capabilities.
@@ -1526,20 +1526,20 @@ class Simulator:
         capabilities = self._engine.capabilities
         # Engine execution support, such as kernel threads, fusion, and process shots.
         if (
-            simulation.kernel_parallelism == "threads"
+            simulation_config.kernel_parallelism == "threads"
             and not capabilities.kernels.supports_kernel_threads
         ):
             raise BackendValidationError(
                 "kernel_parallelism='threads' requires an engine with threaded "
                 "numerical kernels"
             )
-        if simulation.fusion and not capabilities.kernels.supports_fusion:
+        if simulation_config.fusion and not capabilities.kernels.supports_fusion:
             raise BackendValidationError(
                 "fusion=True is not supported by the selected matrix engine; fusion "
                 "does not control compiled multi-shot execution"
             )
         if (
-            simulation.shot_parallelism == "processes"
+            simulation_config.shot_parallelism == "processes"
             and not capabilities.supports_process_shots
         ):
             raise BackendValidationError(

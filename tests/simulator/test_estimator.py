@@ -73,23 +73,24 @@ def test_synthetic_basis_is_ideal_and_readout_confusion_is_applied():
         estimator.run(program, observable)
 
 
-def test_atom_array_carries_terminal_occupancy_into_sampled_tail():
-    program = fq.Program(2)
-    program.add(ops.Put, 0)
+@pytest.mark.parametrize("shots", [0, 32])
+def test_atom_array_expectations_use_evolved_occupancy(shots):
+    program = fq.Program(2, 1)
+    program.add(ops.Put, 0, condition=(0, 0))
     program.add(ops.RX(np.pi), 0)
     estimator = fq.Estimator(AtomArraySimulator(runtime="numpy"))
 
     loaded = estimator.run(
         program,
         Observable([("ZI", 1.0)]),
-        shots=32,
+        shots=shots,
         simulation_config={"seed": 7},
     ).result()
 
     assert loaded.get_expectation() == -1.0
     assert loaded.get_standard_error() == 0.0
     with pytest.raises(UnsupportedOperationError, match="unoccupied atom"):
-        estimator.run(program, Observable([("IZ", 1.0)]), shots=32)
+        estimator.run(program, Observable([("IZ", 1.0)]), shots=shots)
 
 
 @pytest.mark.parametrize("shots", [0, 16])

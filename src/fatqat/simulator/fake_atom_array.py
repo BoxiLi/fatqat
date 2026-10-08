@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from .. import operations as ops
 from .._backends.backend_utils import _canonicalize_method
-from ..errors import BackendValidationError
+from ..errors import BackendValidationError, UnsupportedOperationError
 from ..implementation import (
     MatrixImplementationMap,
     default_matrix_implementation_map,
@@ -45,9 +45,10 @@ if TYPE_CHECKING:
     from ..operations import Operation
     from ..parameters import Parameter
     from ..registers import RegisterRef
+    from ..observable import Observable
     from .._backends.backend_utils import _LoweringContext
     from .planning import _MatrixRecipe
-    from .simulator import ProgramInstruction
+    from .simulator import ProgramInstruction, _PreparedExecution, _PreparedExpectation
     from .._backends.steps import ResolvedStep
 
 
@@ -276,6 +277,44 @@ class AtomArraySimulator(Simulator):
             quantum=quantum,
             classical=_InitialClassicalState(occupied=self._initial_occupancy()),
         )
+
+    def _prepare_expectation(
+        self,
+        execution: _PreparedExecution,
+        program: Program,
+        observables: tuple[Observable, ...],
+        *,
+        shots: int,
+    ) -> _PreparedExpectation:
+        if any(isinstance(step, LossStep) for step in execution.plan):
+            raise UnsupportedOperationError(
+                "expectation values are undefined for programs containing carrier loss"
+            )
+        prepared = super()._prepare_expectation(
+            execution, program, observables, shots=shots
+        )
+        classical = execution.initial_state.classical
+        if classical.occupied is not None:
+            occupied = set(classical.occupied)
+            # Estimator programs have no measurements or loss, so Put guards
+            # depend only on the initial classical digits.
+            for step in execution.plan:
+                if isinstance(step, PutStep) and all(
+                    (0 if classical.clbits is None else classical.clbits[index])
+                    == value
+                    for index, value in (step.condition or ())
+                ):
+                    occupied.update(step.target_indices)
+            lowering = execution.lowering
+            for bound in prepared.bound_occurrences:
+                for index, letter in bound.engine_factors:
+                    if index not in occupied:
+                        operand = lowering.engine_allocation.device_operands[index]
+                        ref = lowering.resource_layout._ref_for_label(operand)
+                        raise UnsupportedOperationError(
+                            f"observable factor {letter} targets unoccupied atom {ref!r}"
+                        )
+        return prepared
 
     def _lower_segment(
         self,

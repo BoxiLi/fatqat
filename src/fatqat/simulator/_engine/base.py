@@ -7,6 +7,7 @@ import numpy as np
 
 from .._execution_contract import (
     RawResult,
+    _InitialClassicalState as InitialClassicalState,
     _InitialEvolutionState as InitialEvolutionState,
     _SimulationConfig as SimulationConfig,
     _EngineCapabilities,
@@ -284,6 +285,28 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def _export_state_data(self, data: QuantumDataT) -> QuantumDataT:
         """Convert representation when required, retaining runtime storage."""
         return data
+
+    def _export_evolution_state(self) -> InitialEvolutionState[QuantumDataT]:
+        """Export completed local evolution as reusable initialization.
+
+        Quantum data is borrowed in runtime-native storage. Classical values
+        are frozen so later execution cannot change the saved initialization.
+        Each consumer initializes its own mutable state before evolving it.
+        """
+        if self._evolution_state is None:
+            raise RuntimeError("MatrixEngine state has not been initialized.")
+        classical = self._evolution_state.classical
+        return InitialEvolutionState(
+            quantum=self.export_state(),
+            classical=InitialClassicalState(
+                clbits=None if classical.clbits is None else tuple(classical.clbits),
+                occupied=(
+                    None
+                    if classical.occupied is None
+                    else frozenset(classical.occupied)
+                ),
+            ),
+        )
 
     @abstractmethod
     def sample_indices(self, shots: int, rng: np.random.Generator) -> np.ndarray:

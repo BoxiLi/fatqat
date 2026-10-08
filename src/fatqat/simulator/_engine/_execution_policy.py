@@ -67,6 +67,8 @@ def _adaptive_thread_worker_ceiling(
 def _validate_execution_controls(
     simulation: SimulationConfig,
     capabilities: KernelCapabilities,
+    *,
+    supports_process_shots: bool,
 ) -> None:
     """Reject plan-independent engine controls before lowering."""
     if (
@@ -81,6 +83,10 @@ def _validate_execution_controls(
         raise BackendValidationError(
             "fusion=True is not supported by the selected matrix engine; fusion "
             "does not control compiled multi-shot execution"
+        )
+    if simulation.shot_parallelism == "processes" and not supports_process_shots:
+        raise BackendValidationError(
+            "shot_parallelism='processes' is not supported by the selected engine"
         )
 
 
@@ -160,6 +166,7 @@ def _resolve_execution_policy(
     state_requested: bool,
     capabilities: KernelCapabilities,
     compiled_multi_shot_compatible: bool,
+    supports_process_shots: bool,
     shots: int,
     initial_occupied: frozenset[int] | None,
     plan_is_empty: bool = False,
@@ -268,7 +275,12 @@ def _resolve_execution_policy(
         use_compiled = True
     else:
         process_workers = _process_worker_ceiling(simulation.max_workers)
-        if shot_shardable and shots >= _PARALLEL_MIN_SHOTS and process_workers > 1:
+        if (
+            supports_process_shots
+            and shot_shardable
+            and shots >= _PARALLEL_MIN_SHOTS
+            and process_workers > 1
+        ):
             shot_strategy = "processes"
             kernel_strategy = "serial"
             worker_limit = process_workers

@@ -1725,6 +1725,7 @@ class NumbaSVEngine(NumpySVEngine):
     _trajectory_capabilities = _TrajectoryCapabilities(
         classical_register=True, occupancy=True
     )
+    _supports_process_shots = True
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=True,
         thread_capacity=_MAX_THREADS,
@@ -2298,6 +2299,7 @@ class NumbaDMEngine(NumpyDMEngine):
     _trajectory_capabilities = _TrajectoryCapabilities(
         classical_register=True, occupancy=True
     )
+    _supports_process_shots = True
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=True, thread_capacity=_MAX_THREADS, supports_fusion=True
     )
@@ -2914,6 +2916,7 @@ class NumbaUnitaryEngine(  # pylint: disable=too-many-ancestors
         nonunitary_is_stochastic=True,
     )
     _trajectory_capabilities = _TrajectoryCapabilities()
+    _supports_process_shots = False
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=True, thread_capacity=_MAX_THREADS, supports_fusion=True
     )
@@ -2986,6 +2989,7 @@ class NumbaSuperopEngine(  # pylint: disable=too-many-ancestors
         "superop", supports_nonunitary=True, nonunitary_is_stochastic=False
     )
     _trajectory_capabilities = _TrajectoryCapabilities()
+    _supports_process_shots = False
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=True, thread_capacity=_MAX_THREADS, supports_fusion=True
     )

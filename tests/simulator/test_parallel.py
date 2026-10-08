@@ -1,6 +1,13 @@
+from functools import partial
+from threading import Lock
+
+import pytest
+
 import fatqat as fq
 import fatqat.operations as ops
+from fatqat.errors import BackendValidationError
 from fatqat.simulator import Simulator
+from fatqat.simulator._engine.np import NumpySVEngine
 
 
 def _random_dynamic_program():
@@ -35,3 +42,55 @@ def test_real_process_shots_return_counts_with_serial_children():
     assert sum(result.get_counts().values()) == 8
     assert set(result.get_counts()) <= {"00", "11"}
     assert _loky_executor(2).submit(numba.get_num_threads).result() == 1
+
+
+@pytest.mark.parametrize("strategy", ["auto", "processes"])
+def test_engine_without_process_support(strategy):
+    class LocalEngine(NumpySVEngine):
+        _supports_process_shots = False
+
+        def _process_engine_factory(self):
+            raise RuntimeError("this runtime cannot create process workers")
+
+    backend = Simulator("SV", runtime="numpy")
+    backend._engine = LocalEngine()
+    config = {"seed": 5, "shot_parallelism": strategy, "max_workers": 2}
+    program = _random_dynamic_program()
+    if strategy == "processes":
+        with pytest.raises(BackendValidationError, match="not supported"):
+            backend.run(program, shots=64, simulation_config=config)
+    else:
+        result = backend.run(program, shots=64, simulation_config=config).result()
+        assert sum(result.get_counts().values()) == 64
+        assert set(result.get_counts()) <= {"00", "11"}
+
+
+@pytest.mark.parametrize("strategy", ["serial", "processes"])
+def test_workers_preserve_configuration_without_copying_runtime_state(strategy):
+    class ConfiguredEngine(NumpySVEngine):
+        def __init__(self, *, readout_flip):
+            super().__init__()
+            self._readout_flip = readout_flip
+            # A live runtime resource must be recreated in each worker.
+            self._runtime_lock = Lock()
+
+        def _process_engine_factory(self):
+            return partial(type(self), readout_flip=self._readout_flip)
+
+        def measure_subsystems(self, indices, rng):
+            with self._runtime_lock:
+                digits = super().measure_subsystems(indices, rng)
+            return tuple(digit ^ self._readout_flip for digit in digits)
+
+    backend = Simulator("SV", runtime="numpy")
+    backend._engine = ConfiguredEngine(readout_flip=1)
+    program = fq.Program(1, 1)
+    program.measure(0, 0)
+    program.add(ops.Reset, 0)
+    result = backend.run(
+        program,
+        shots=8,
+        simulation_config={"seed": 5, "shot_parallelism": strategy, "max_workers": 2},
+    ).result()
+
+    assert result.get_counts() == {"1": 8}

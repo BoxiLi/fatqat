@@ -43,6 +43,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     _quantum_capabilities: _QuantumCapabilities
     _trajectory_capabilities: _TrajectoryCapabilities
     _kernel_capabilities: _KernelCapabilities
+    _supports_process_shots: bool = False
 
     def __init__(
         self,
@@ -104,6 +105,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             quantum=self._quantum_capabilities,
             trajectory=self._trajectory_capabilities,
             kernels=self._kernel_capabilities,
+            supports_process_shots=self._supports_process_shots,
         )
 
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
@@ -112,7 +114,12 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
 
     def _validate_execution_controls(self, simulation: SimulationConfig) -> None:
         """Reject unsupported runtime controls before program lowering."""
-        _validate_execution_controls(simulation, self.capabilities.kernels)
+        capabilities = self.capabilities
+        _validate_execution_controls(
+            simulation,
+            capabilities.kernels,
+            supports_process_shots=capabilities.supports_process_shots,
+        )
 
     def resolve_execution_policy(
         self,
@@ -135,12 +142,14 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             initial_occupied=initial_occupied,
         ):
             compiled_multi_shot_compatible = self.compiled_multi_shot_compatible(plan)
+        capabilities = self.capabilities
         return _resolve_execution_policy(
             simulation,
             facts=facts,
             counts_requested=counts_requested,
             state_requested=state_requested,
-            capabilities=self.capabilities.kernels,
+            capabilities=capabilities.kernels,
+            supports_process_shots=capabilities.supports_process_shots,
             compiled_multi_shot_compatible=compiled_multi_shot_compatible,
             shots=shots,
             initial_occupied=initial_occupied,

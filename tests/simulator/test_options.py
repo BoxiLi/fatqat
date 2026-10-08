@@ -396,6 +396,7 @@ def test_execution_policy_decision_table(
         state_requested=state_requested,
         capabilities=capabilities,
         compiled_multi_shot_compatible=compatible,
+        supports_process_shots=True,
         shots=shots,
         initial_occupied=initial_occupied,
     )
@@ -433,6 +434,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         state_requested=False,
         capabilities=_KernelCapabilities(True, 8, True),
         compiled_multi_shot_compatible=False,
+        supports_process_shots=True,
         shots=64,
         initial_occupied=None,
     )
@@ -550,6 +552,7 @@ def test_execution_policy_rejects_inapplicable_requests(
             state_requested=state_requested,
             capabilities=capabilities,
             compiled_multi_shot_compatible=compatible,
+            supports_process_shots=True,
             shots=shots,
             initial_occupied=None,
             plan_is_empty=plan_is_empty,

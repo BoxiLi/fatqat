@@ -60,13 +60,13 @@ def _split_into_batches(
 
 
 def _run_shot_batch(
-    engine_cls: _EngineFactory,
+    engine_factory: _EngineFactory,
     context: ExecutionContext,
     payload: Any,
     seed_batch: list[np.random.SeedSequence],
     child_policy: ExecutionPolicy,
 ) -> list[tuple[int, ...]]:
-    engine = engine_cls()
+    engine = engine_factory()
     return engine.execute_shot_batch(context, payload, seed_batch, child_policy)
 
 
@@ -80,7 +80,7 @@ def _loky_executor(max_workers: int):
 
 
 def _run_shots_in_processes(
-    engine_cls: _EngineFactory,
+    engine_factory: _EngineFactory,
     context: ExecutionContext,
     payload: Any,
     policy: ExecutionPolicy,
@@ -96,7 +96,7 @@ def _run_shots_in_processes(
     executor = _loky_executor(policy.worker_limit)
     results = executor.map(
         _run_shot_batch,
-        repeat(engine_cls),
+        repeat(engine_factory),
         repeat(context),
         repeat(payload),
         batches,

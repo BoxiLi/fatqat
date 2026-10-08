@@ -78,6 +78,8 @@ class _EngineCapabilities:
     # Flags declare support independently of the current classical container.
     trajectory: _TrajectoryCapabilities
     kernels: _KernelCapabilities
+    # Complete shot batches can run in CPU processes with transferable payloads.
+    supports_process_shots: bool = False
 
     @property
     def supports_classical_register(self) -> bool:

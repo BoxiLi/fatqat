@@ -59,7 +59,8 @@ Semantics differences:
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from math import prod
 from typing import Any
 
@@ -336,7 +337,9 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
 
         if policy.shot_strategy != "processes":
             raise RuntimeError(f"Unknown shot strategy: {policy.shot_strategy!r}")
-        snapshots = _run_shots_in_processes(type(self), context, payload, policy)
+        snapshots = _run_shots_in_processes(
+            self._process_engine_factory(), context, payload, policy
+        )
         rows = np.asarray(snapshots, dtype=int).reshape(
             (len(snapshots), context.n_clbits)
         )
@@ -345,6 +348,13 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
             outcome_keys=outcome_keys,
             outcome_counts=outcome_counts,
         )
+
+    def _process_engine_factory(self) -> Callable[[], MatrixEngine[np.ndarray]]:
+        """Carry constructor configuration to workers without live execution state.
+
+        Engines with additional constructor options override this hook.
+        """
+        return partial(type(self), name=self.name)
 
     def execute_local(
         self,
@@ -591,6 +601,7 @@ class NumpySVEngine(_NumpyMatrixEngine):
     _trajectory_capabilities = _TrajectoryCapabilities(
         classical_register=True, occupancy=True
     )
+    _supports_process_shots = True
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
@@ -750,6 +761,7 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     _trajectory_capabilities = _TrajectoryCapabilities(
         classical_register=True, occupancy=True
     )
+    _supports_process_shots = True
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
@@ -959,6 +971,7 @@ class NumpyUnitaryEngine(  # pylint: disable=abstract-method
         nonunitary_is_stochastic=True,
     )
     _trajectory_capabilities = _TrajectoryCapabilities()
+    _supports_process_shots = False
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )
@@ -1002,6 +1015,7 @@ class NumpySuperopEngine(  # pylint: disable=abstract-method
         "superop", supports_nonunitary=True, nonunitary_is_stochastic=False
     )
     _trajectory_capabilities = _TrajectoryCapabilities()
+    _supports_process_shots = False
     _kernel_capabilities = _KernelCapabilities(
         supports_kernel_threads=False, thread_capacity=1, supports_fusion=False
     )

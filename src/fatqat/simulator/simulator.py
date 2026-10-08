@@ -57,12 +57,6 @@ from ..result import (
     counts_dict_from_arrays,
 )
 from ._engine.base import MatrixEngine, _shot_seed_sequences
-from ._engine.np import (
-    NumpyDMEngine,
-    NumpySuperopEngine,
-    NumpySVEngine,
-    NumpyUnitaryEngine,
-)
 from .._backends.backend_utils import (
     _LoweringContext,
     _canonicalize_method,
@@ -101,36 +95,34 @@ class _MethodSpec:
 
     Attributes:
         request_cls: The method's engine-request value object.
-        numpy_engine: The `MatrixEngine` subclass for ``runtime="numpy"``.
-        numba_engine_name: The `fatqat.simulator._engine.nb` attribute naming
-            the ``runtime="numba"`` twin, held as a name so the module is
-            resolved lazily.
+        numpy_engine_name: Class name in the lazily loaded NumPy engine module.
+        numba_engine_name: Class name in the lazily loaded Numba engine module.
     """
 
     request_cls: type
-    numpy_engine: type[MatrixEngine]
+    numpy_engine_name: str
     numba_engine_name: str
 
 
 _METHOD_SPECS: dict[str, _MethodSpec] = {
     "statevector": _MethodSpec(
         request_cls=_StateVectorResultRequest,
-        numpy_engine=NumpySVEngine,
+        numpy_engine_name="NumpySVEngine",
         numba_engine_name="NumbaSVEngine",
     ),
     "density_matrix": _MethodSpec(
         request_cls=_DensityMatrixResultRequest,
-        numpy_engine=NumpyDMEngine,
+        numpy_engine_name="NumpyDMEngine",
         numba_engine_name="NumbaDMEngine",
     ),
     "unitary": _MethodSpec(
         request_cls=_UnitaryResultRequest,
-        numpy_engine=NumpyUnitaryEngine,
+        numpy_engine_name="NumpyUnitaryEngine",
         numba_engine_name="NumbaUnitaryEngine",
     ),
     "superop": _MethodSpec(
         request_cls=_SuperopResultRequest,
-        numpy_engine=NumpySuperopEngine,
+        numpy_engine_name="NumpySuperopEngine",
         numba_engine_name="NumbaSuperopEngine",
     ),
 }
@@ -298,18 +290,20 @@ class Simulator:
         # Select implementations here; execution support belongs to the engine.
         spec = _METHOD_SPECS[normalized]
         self._request_cls = spec.request_cls
-        self._engine_cls: type[MatrixEngine] = spec.numpy_engine
         if normalized_runtime == "numba":
             try:
-                # Lazy: fatqat.simulator's package __init__ deliberately never
-                # imports the Numba engine module.
-                from ._engine import nb
+                from ._engine import nb as engine_module
             except ImportError as exc:
                 raise BackendValidationError(
                     "runtime='numba' requires the numba dependency; reinstall "
                     "fatqat to repair the environment"
                 ) from exc
-            self._engine_cls = getattr(nb, spec.numba_engine_name)
+            engine_name = spec.numba_engine_name
+        else:
+            from ._engine import np as engine_module
+
+            engine_name = spec.numpy_engine_name
+        self._engine_cls: type[MatrixEngine] = getattr(engine_module, engine_name)
         self._runtime = normalized_runtime
 
         if implementation_map is None:

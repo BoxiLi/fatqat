@@ -14,6 +14,6 @@ extension point; users reach simulation through
 :class:`fatqat.simulator.Simulator`.
 
 Import the concrete modules directly (``from ._engine.np import
-NumpySVEngine``). ``nb`` is imported lazily by the `Simulator`, since numba
-compilation is only needed when that runtime is selected.
+NumpySVEngine``). The `Simulator` loads the selected runtime module lazily
+when it is constructed.
 """

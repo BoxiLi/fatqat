@@ -198,7 +198,7 @@ class AtomArraySimulator(Simulator):
 
         Occupancy is seeded empty and ``Put`` then fills its targets per shot.
         That empty seed is not a plan step - it is an initialization input the
-        engine receives at run start (see ``_initial_occupancy``), because
+        engine receives at run start, because
         seeding occupancy is the atom simulator's own setup, not an operation.
         ``Measurement`` always lowers normally; an empty (never-``Put``) site
         measures the erasure digit ``2`` under the occupancy guard.
@@ -206,7 +206,7 @@ class AtomArraySimulator(Simulator):
         Raises:
             BackendValidationError: If a ``Pair`` or ``Unpair`` carries a
                 condition, or if a two-qubit gate targets a pair that is not
-                currently paired (see :py:meth:`_require_pairing`), or a
+                currently paired, or a
                 finite noise channel selects more than one subsystem.
         """
         resource_layout = context.resource_layout
@@ -265,17 +265,13 @@ class AtomArraySimulator(Simulator):
             )
         return plan
 
-    def _initial_occupancy(self) -> frozenset[int]:
-        """Return the empty per-shot occupancy seed for this atom array."""
-        return frozenset()
-
     def _prepare_initial_state(
         self, quantum: np.ndarray | None
     ) -> _InitialEvolutionState[np.ndarray]:
         """Start each trajectory with the atom array's initial occupancy."""
         return _InitialEvolutionState(
             quantum=quantum,
-            classical=_InitialClassicalState(occupied=self._initial_occupancy()),
+            classical=_InitialClassicalState(occupied=frozenset()),
         )
 
     def _prepare_expectation(
@@ -331,7 +327,7 @@ class AtomArraySimulator(Simulator):
         context. A two-qubit gate whose pair is not currently paired is a
         program-construction error - the pairing graph is fixed at compile time
         by ``Pair``/``Unpair``, independent of any shot - so it is rejected
-        here (see :py:meth:`_require_pairing`), distinct from a per-shot atom
+        here, distinct from a per-shot atom
         loss, which the engine drops silently. Operations on sites that no
         ``Put`` can load still pass through common lowering for validation;
         their gates are omitted while finite channels are retained for survivors.

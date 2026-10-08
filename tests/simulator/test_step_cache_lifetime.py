@@ -115,7 +115,7 @@ def test_sweep_keeps_fixed_resolutions_and_releases_replaced_rows(monkeypatch, m
         else "_resolve_superop"
     )
     observed = _observe_resolutions(monkeypatch, backend._engine, resolver)
-    execute = backend._execute_engine
+    execute = backend._engine.execute
     rows_checked = 0
 
     def check_row(**kwargs):
@@ -132,7 +132,7 @@ def test_sweep_keeps_fixed_resolutions_and_releases_replaced_rows(monkeypatch, m
         rows_checked += 1
         return raw
 
-    monkeypatch.setattr(backend, "_execute_engine", check_row)
+    monkeypatch.setattr(backend._engine, "execute", check_row)
     theta = fq.Parameter("theta")
     program = fq.Program(1)
     program.add(ops.H, 0)

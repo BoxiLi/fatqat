@@ -636,7 +636,7 @@ class NumpySVEngine(_NumpyMatrixEngine):
     )
 
     def __init__(self, name: str = "numpy-sv"):
-        super().__init__(name, state_semantics="sv")
+        super().__init__(name)
         # Per-step channel route, keyed by id(step) with the step pinned in the
         # value so a recycled id can never alias. Depends on the step's frozen
         # Kraus operators alone, not on system dims, so `initialize` must not
@@ -796,7 +796,7 @@ class NumpyDMEngine(_NumpyMatrixEngine):
     )
 
     def __init__(self, name: str = "numpy-dm"):
-        super().__init__(name, state_semantics="dm")
+        super().__init__(name)
 
     def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
         given = initial_state

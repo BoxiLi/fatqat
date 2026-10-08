@@ -8,8 +8,8 @@ This layer is private and deliberately re-exports nothing. A run crosses the
 boundary as one immutable simulator-owned execution context and one resolved
 policy. The engine configures dimensions, materializes an engine-specific
 payload, and executes that payload only through local or shot-batch entry
-points. Engines select execution policies; the `Simulator` owns route dispatch
-and public result assembly. Engines remain private rather than a supported
+points. Engines select execution policies and dispatch routes; the `Simulator`
+assembles public results. Engines remain private rather than a supported
 extension point; users reach simulation through
 :class:`fatqat.simulator.Simulator`.
 

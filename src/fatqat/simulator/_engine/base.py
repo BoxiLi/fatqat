@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
-from typing import Any, Generic, Literal
+from typing import Any, Generic
 
 import numpy as np
 
@@ -44,14 +44,8 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     _kernel_capabilities: _KernelCapabilities
     _supports_process_shots: bool = False
 
-    def __init__(
-        self,
-        name: str,
-        *,
-        state_semantics: Literal["sv", "dm"],
-    ):
+    def __init__(self, name: str):
         self.name = name
-        self.state_semantics = state_semantics
 
         self._evolution_state: EvolutionState[QuantumDataT] | None = None
         self._dims: tuple[int, ...] = ()

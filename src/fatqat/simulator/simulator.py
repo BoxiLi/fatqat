@@ -72,7 +72,6 @@ from .._backends.backend_utils import (
 )
 from . import planning
 from ._execution_contract import (
-    _EngineCapabilities,
     _ExecutionContext,
     _PlanFacts,
 )
@@ -148,7 +147,6 @@ class _PreparedExecution:
     initial_occupied: frozenset[int] | None
     lowering: _LoweringContext
     simulation: _SimulationConfig
-    capabilities: _EngineCapabilities
     initial_state: np.ndarray | None
 
 
@@ -854,7 +852,6 @@ class Simulator:
             initial_occupied=prepared.initial_occupied,
             lowering=prepared.lowering,
             simulation=prepared.simulation,
-            capabilities=prepared.capabilities,
             initial_state=prepared.initial_state,
             config=config,
             shots=shots,
@@ -872,7 +869,6 @@ class Simulator:
         param_order: tuple[Parameter, ...] | None = None,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
-        capabilities = self._engine.capabilities
         # Both hooks are resolved exactly once per run, before any execution
         # try block: capacity, dimension, grid-fit, and mapping failures must
         # raise directly, never become a failed Job. The resource layout is the
@@ -915,7 +911,6 @@ class Simulator:
             initial_occupied=initial_occupied,
             lowering=lowering,
             simulation=simulation,
-            capabilities=capabilities,
             initial_state=initial_state,
         )
 
@@ -1072,7 +1067,7 @@ class Simulator:
             simulation_config=execution.simulation,
             initial_occupied=execution.initial_occupied,
         )
-        if shots > 0 and not execution.capabilities.supports_classical_register:
+        if shots > 0 and not self._engine.capabilities.supports_classical_register:
             raise UnsupportedOperationError(
                 "sampled expectations require an engine with a classical register"
             )
@@ -1242,7 +1237,7 @@ class Simulator:
             initial_state=execution.initial_state,
             initial_occupied=execution.initial_occupied,
         )
-        raw = self._execute_engine(
+        raw = self._engine.execute(
             plan=plan,
             deferred_measurements=execution.facts.deferred_measurements,
             context=context,
@@ -1307,7 +1302,7 @@ class Simulator:
             )
             plan = execution.plan
             assert isinstance(plan, tuple)
-            raw = self._execute_engine(
+            raw = self._engine.execute(
                 plan=plan,
                 deferred_measurements=execution.facts.deferred_measurements,
                 context=context,
@@ -1347,7 +1342,7 @@ class Simulator:
             shots=prepared.shots,
         )
         try:
-            raw = self._execute_engine(
+            raw = self._engine.execute(
                 plan=plan,
                 deferred_measurements=prepared.facts.deferred_measurements,
                 context=prepared.execution,
@@ -1595,22 +1590,6 @@ class Simulator:
         """
 
     # --- execution ---
-    def _execute_engine(
-        self,
-        *,
-        plan: tuple[ResolvedStep, ...],
-        deferred_measurements: tuple[tuple[int, int], ...],
-        context: _ExecutionContext,
-        policy: _ExecutionPolicy,
-    ) -> RawResult[np.ndarray]:
-        """Delegate preparation and execution to the selected engine."""
-        return self._engine.execute(
-            plan,
-            context=context,
-            deferred_measurements=deferred_measurements,
-            policy=policy,
-        )
-
     def _assemble_result(
         self,
         *,

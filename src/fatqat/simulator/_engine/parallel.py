@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from itertools import repeat
 from typing import TYPE_CHECKING, Any
 
@@ -25,9 +26,6 @@ if TYPE_CHECKING:
             seed_batch: list[np.random.SeedSequence],
             policy: ExecutionPolicy,
         ) -> list[tuple[int, ...]]: ...
-
-    class _EngineFactory(Protocol):
-        def __call__(self) -> _ProcessEngine: ...
 
 
 # Installed before scientific modules import in a loky child. The explicit
@@ -60,7 +58,7 @@ def _split_into_batches(
 
 
 def _run_shot_batch(
-    engine_factory: _EngineFactory,
+    engine_factory: Callable[[], _ProcessEngine],
     context: ExecutionContext,
     payload: Any,
     seed_batch: list[np.random.SeedSequence],
@@ -80,7 +78,7 @@ def _loky_executor(max_workers: int):
 
 
 def _run_shots_in_processes(
-    engine_factory: _EngineFactory,
+    engine_factory: Callable[[], _ProcessEngine],
     context: ExecutionContext,
     payload: Any,
     policy: ExecutionPolicy,

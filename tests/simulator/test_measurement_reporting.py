@@ -31,15 +31,14 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         ApplyMatrixStep(matrix=x, target_indices=(1,), condition=((0, 0),)),
     )
     context = _ExecutionContext(
-        execution_shape="per_shot",
         request=_StateVectorResultRequest(counts=True, statevector=True),
         system_dims=(3, 2),
         n_clbits=1,
         shots=1,
         seed=9,
-        initial_state=_InitialEvolutionState(quantum=None),
     )
     policy = _ExecutionPolicy(
+        execution_shape="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -52,7 +51,9 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         deferred_measurements=(),
         policy=policy,
     )
-    result = engine.execute_local(context, payload, policy)
+    result = engine.execute_local(
+        context, payload, policy, initial_state=_InitialEvolutionState()
+    )
 
     # Feedforward receives the confused reported digit, so its X fires.
     assert result.outcome_keys.tolist() == [[0]]

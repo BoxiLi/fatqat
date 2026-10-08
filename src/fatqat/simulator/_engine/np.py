@@ -361,6 +361,7 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         context: ExecutionContext,
         deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Materialize and dispatch a plan through local or CPU process execution."""
         payload = self.materialize_execution(
@@ -371,12 +372,14 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
             policy=_materialization_policy(policy),
         )
         if policy.shot_strategy in ("none", "serial", "threads"):
-            return self.execute_local(context, payload, policy)
+            return self.execute_local(
+                context, payload, policy, initial_state=initial_state
+            )
 
         if policy.shot_strategy != "processes":
             raise RuntimeError(f"Unknown shot strategy: {policy.shot_strategy!r}")
         snapshots = _run_shots_in_processes(
-            self._process_engine_factory(), context, payload, policy
+            self._process_engine_factory(), context, payload, policy, initial_state
         )
         rows = np.asarray(snapshots, dtype=int).reshape(
             (len(snapshots), context.n_clbits)
@@ -399,22 +402,26 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         context: ExecutionContext,
         payload: Any,
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Execute one materialized state plan without dispatching."""
         assert policy.shot_strategy != "processes"
         self.configure_system(context.system_dims, context.n_clbits)
         plan, measurements = payload[:2]
         with self._execution_scope(policy):
-            if context.execution_shape == "per_shot":
-                return self._run_per_shot_local(plan, context)
-            assert context.execution_shape == "single_pass"
+            if policy.execution_shape == "per_shot":
+                return self._run_per_shot_local(
+                    plan, context, initial_state=initial_state
+                )
+            assert policy.execution_shape == "single_pass"
             return self._run_fast(
                 plan,
                 measurements,
                 context.shots,
                 np.random.default_rng(context.seed),
                 context.request,
-                context.initial_state,
+                initial_state,
             )
 
     def _run_fast(
@@ -479,6 +486,8 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         self,
         plan: Sequence[ResolvedStep],
         context: ExecutionContext,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Replay dynamic trajectories locally under an already-resolved policy."""
         request = context.request
@@ -487,7 +496,7 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         snapshots = self._run_shot_seed_batch(
             plan,
             _shot_seed_sequences(context.seed, n_iters),
-            context.initial_state,
+            initial_state,
         )
 
         outcome_keys = outcome_counts = state = None
@@ -526,6 +535,8 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         payload: Any,
         seed_batch: list[np.random.SeedSequence],
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> list[tuple[int, ...]]:
         """Non-dispatching worker entry for one ordered batch of shots."""
         assert policy.shot_strategy == "serial"
@@ -536,7 +547,7 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
             return self._run_shot_seed_batch(
                 plan,
                 seed_batch,
-                context.initial_state,
+                initial_state,
             )
 
     def _run_one_shot(
@@ -922,17 +933,19 @@ class _NumpyOperatorEngine(_NumpyMatrixEngine):
         context: ExecutionContext,
         payload: Any,
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Evolve one already-materialized operator plan in this process."""
         assert policy.shot_strategy == "none"
-        assert context.execution_shape == "operator"
+        assert policy.execution_shape == "operator"
         self.configure_system(context.system_dims, context.n_clbits)
         plan = payload[0]
         with self._execution_scope(policy):
             self.initialize(
                 self._dims,
                 self._n_clbits,
-                initial_state=context.initial_state,
+                initial_state=initial_state,
             )
             rng = np.random.default_rng(context.seed)
             request = context.request

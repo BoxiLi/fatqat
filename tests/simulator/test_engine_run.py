@@ -19,6 +19,7 @@ from fatqat.errors import BackendValidationError
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
 _SERIAL = _ExecutionPolicy(
+    execution_shape="single_pass",
     shot_strategy="none",
     kernel_strategy="serial",
     worker_limit=1,
@@ -28,27 +29,29 @@ _SERIAL = _ExecutionPolicy(
 
 def _context(
     *,
-    execution_shape="single_pass",
     n_clbits,
     shots,
     request,
     seed=0,
-    initial_state=None,
 ):
     return _ExecutionContext(
-        execution_shape=execution_shape,
         request=request,
         system_dims=(2,),
         n_clbits=n_clbits,
         shots=shots,
         seed=seed,
-        initial_state=(
-            initial_state if initial_state is not None else _InitialEvolutionState()
-        ),
     )
 
 
-def _run(engine, plan, context, *, deferred_measurements=(), policy=_SERIAL):
+def _run(
+    engine,
+    plan,
+    context,
+    *,
+    deferred_measurements=(),
+    policy=_SERIAL,
+    initial_state=None,
+):
     payload = engine.materialize_execution(
         tuple(plan),
         system_dims=context.system_dims,
@@ -56,7 +59,14 @@ def _run(engine, plan, context, *, deferred_measurements=(), policy=_SERIAL):
         deferred_measurements=tuple(deferred_measurements),
         policy=policy,
     )
-    return engine.execute_local(context, payload, policy)
+    return engine.execute_local(
+        context,
+        payload,
+        policy,
+        initial_state=(
+            initial_state if initial_state is not None else _InitialEvolutionState()
+        ),
+    )
 
 
 def test_numba_compiled_multi_shot_compatibility():
@@ -130,29 +140,40 @@ def test_occupancy_loss_reload_and_feedback_start_fresh(runtime, occupied, repor
         MeasurementStep((0,), (2,)),
     ]
     context = _context(
-        execution_shape="per_shot",
         n_clbits=3,
         shots=4,
-        initial_state=_InitialEvolutionState(
-            classical=_InitialClassicalState(occupied=occupied)
-        ),
         request=_StateVectorResultRequest(counts=True, statevector=False),
     )
-    policy = _ExecutionPolicy("serial", "serial", 1, False)
+    initial = _InitialEvolutionState(
+        classical=_InitialClassicalState(occupied=occupied)
+    )
+    policy = _ExecutionPolicy(
+        execution_shape="per_shot",
+        shot_strategy="serial",
+        kernel_strategy="serial",
+        worker_limit=1,
+        fusion=False,
+    )
 
-    result = _run(engine, plan, context, policy=policy)
+    result = _run(engine, plan, context, policy=policy, initial_state=initial)
 
     assert result.outcome_keys.tolist() == [[reported, 2, reported]]
     assert result.outcome_counts.tolist() == [4]
 
     # Reusing the engine restores initial occupancy and clears report digits.
-    reused = _run(engine, plan[:3], context, policy=policy)
+    reused = _run(engine, plan[:3], context, policy=policy, initial_state=initial)
     assert reused.outcome_keys.tolist() == [[reported, 0, 0]]
     assert reused.outcome_counts.tolist() == [4]
     assert result.outcome_keys.tolist() == [[reported, 2, reported]]
 
     # Unused declared registers still report zero without evolving any digits.
-    unwritten = _run(engine, [plan[0], LossStep((0,), p=0.0)], context, policy=policy)
+    unwritten = _run(
+        engine,
+        [plan[0], LossStep((0,), p=0.0)],
+        context,
+        policy=policy,
+        initial_state=initial,
+    )
     assert unwritten.outcome_keys.tolist() == [[0, 0, 0]]
     assert unwritten.outcome_counts.tolist() == [4]
 
@@ -172,22 +193,25 @@ def test_initial_register_drives_feedback_and_is_fresh_per_shot(mode):
     x = np.array([[0, 1], [1, 0]], dtype=complex)
     plan = [ApplyMatrixStep(x, (0,), condition=((0, 1),)), MeasurementStep((0,), (0,))]
     context = _context(
-        execution_shape="per_shot",
         n_clbits=2,
         shots=8,
         request=_StateVectorResultRequest(counts=True, statevector=False),
-        initial_state=initial,
     )
     policy = _ExecutionPolicy(
-        "processes" if mode == "processes" else "serial",
-        "serial",
-        2 if mode == "processes" else 1,
-        False,
+        execution_shape="per_shot",
+        shot_strategy="processes" if mode == "processes" else "serial",
+        kernel_strategy="serial",
+        worker_limit=2 if mode == "processes" else 1,
+        fusion=False,
         use_compiled_multi_shot_kernel=mode == "compiled",
     )
 
     result = engine.execute(
-        tuple(plan), context=context, deferred_measurements=(), policy=policy
+        tuple(plan),
+        context=context,
+        deferred_measurements=(),
+        policy=policy,
+        initial_state=initial,
     )
 
     assert result.outcome_keys.tolist() == [[0, 2]]
@@ -203,12 +227,17 @@ def test_fast_counts_preserve_unwritten_initial_digits(measure):
         n_clbits=2,
         shots=4,
         request=_StateVectorResultRequest(counts=True, statevector=False),
-        initial_state=initial,
     )
     plan = [MeasurementStep((0,), (0,))] if measure else []
     deferred = ((0, 0),) if measure else ()
 
-    result = _run(NumpySVEngine(), plan, context, deferred_measurements=deferred)
+    result = _run(
+        NumpySVEngine(),
+        plan,
+        context,
+        deferred_measurements=deferred,
+        initial_state=initial,
+    )
 
     assert result.outcome_keys.tolist() == [[0 if measure else 1, 2]]
     assert result.outcome_counts.tolist() == [4]

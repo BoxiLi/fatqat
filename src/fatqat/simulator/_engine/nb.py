@@ -97,6 +97,7 @@ from numba import get_num_threads, njit, prange, set_num_threads
 
 from .._execution_contract import (
     RawResult,
+    _InitialEvolutionState as InitialEvolutionState,
     _ExecutionContext as ExecutionContext,
     _KernelCapabilities,
     _QuantumCapabilities,
@@ -1830,13 +1831,19 @@ class NumbaSVEngine(NumpySVEngine):
         context: ExecutionContext,
         payload,
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         self.configure_system(context.system_dims, context.n_clbits)
         self._apply_plans = dict(payload[3])
         if not policy.use_compiled_multi_shot_kernel:
-            return super().execute_local(context, payload, policy)
+            return super().execute_local(
+                context, payload, policy, initial_state=initial_state
+            )
         with self._execution_scope(policy):
-            return self._run_compiled_multi_shot(context, payload[2])
+            return self._run_compiled_multi_shot(
+                context, payload[2], initial_state=initial_state
+            )
 
     def execute_shot_batch(
         self,
@@ -1844,10 +1851,14 @@ class NumbaSVEngine(NumpySVEngine):
         payload,
         seed_batch: list[np.random.SeedSequence],
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> list[tuple[int, ...]]:
         self.configure_system(context.system_dims, context.n_clbits)
         self._apply_plans = dict(payload[3])
-        return super().execute_shot_batch(context, payload, seed_batch, policy)
+        return super().execute_shot_batch(
+            context, payload, seed_batch, policy, initial_state=initial_state
+        )
 
     def _resolve_structure(
         self, step: ApplyMatrixStep
@@ -1958,6 +1969,8 @@ class NumbaSVEngine(NumpySVEngine):
         self,
         context: ExecutionContext,
         compiled,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Execute a materialized counts plan in one compiled multi-shot call."""
         plan_arrays, max_draws = compiled
@@ -1969,19 +1982,19 @@ class NumbaSVEngine(NumpySVEngine):
             ).random(max_draws)
 
         state_size = prod(self._dims) if self._dims else 1
-        custom_start = context.initial_state.quantum is not None
+        custom_start = initial_state.quantum is not None
         # The custom template is read-only: each shot takes the private copy it
         # evolves. `ascontiguousarray` therefore aliases the validated common
         # case and copies only when layout or dtype requires it. The default
         # path passes no O(D) template at all.
         start = (
-            np.ascontiguousarray(
-                context.initial_state.quantum, dtype=np.complex128
-            ).reshape(state_size)
+            np.ascontiguousarray(initial_state.quantum, dtype=np.complex128).reshape(
+                state_size
+            )
             if custom_start
             else np.empty(0, dtype=np.complex128)
         )
-        clbits = context.initial_state.classical.clbits
+        clbits = initial_state.classical.clbits
         clbits_start = np.asarray(clbits if clbits is not None else (), dtype=np.int64)
         rows = _run_shots_kernel(
             *plan_arrays,
@@ -2388,10 +2401,14 @@ class NumbaDMEngine(NumpyDMEngine):
         context: ExecutionContext,
         payload,
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         self.configure_system(context.system_dims, context.n_clbits)
         self._sandwich_plans = dict(payload[2])
-        return super().execute_local(context, payload, policy)
+        return super().execute_local(
+            context, payload, policy, initial_state=initial_state
+        )
 
     def execute_shot_batch(
         self,
@@ -2399,10 +2416,14 @@ class NumbaDMEngine(NumpyDMEngine):
         payload,
         seed_batch: list[np.random.SeedSequence],
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> list[tuple[int, ...]]:
         self.configure_system(context.system_dims, context.n_clbits)
         self._sandwich_plans = dict(payload[2])
-        return super().execute_shot_batch(context, payload, seed_batch, policy)
+        return super().execute_shot_batch(
+            context, payload, seed_batch, policy, initial_state=initial_state
+        )
 
     def _sandwich_plan(self, targets: tuple[int, ...]) -> tuple:
         """Super-operator apply plan for ``targets`` over the doubled dims.
@@ -2872,17 +2893,19 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
         context: ExecutionContext,
         payload,
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Execute one already-packed operator payload without replanning."""
         assert policy.shot_strategy == "none"
-        assert context.execution_shape == "operator"
+        assert policy.execution_shape == "operator"
         self.configure_system(context.system_dims, context.n_clbits)
         packed, scratch_rows, n_columns, n_chunks = payload
         with self._execution_scope(policy):
             self.initialize(
                 self._dims,
                 self._n_clbits,
-                initial_state=context.initial_state,
+                initial_state=initial_state,
             )
             if packed is not None:
                 operator = np.ascontiguousarray(self.state, dtype=np.complex128)

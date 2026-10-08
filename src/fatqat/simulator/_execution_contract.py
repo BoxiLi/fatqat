@@ -267,13 +267,11 @@ class _InitialEvolutionState(Generic[StateDataT]):
 
 
 @dataclass(frozen=True, slots=True)
-class _ExecutionContext(Generic[StateDataT]):
-    """Semantic and numerical values executed under a resolved policy."""
+class _ExecutionContext:
+    """System dimensions, requested outputs, and sampling controls."""
 
-    execution_shape: ExecutionShape
     request: _ResultRequest
     system_dims: tuple[int, ...]
     n_clbits: int
     shots: int
     seed: int | None
-    initial_state: _InitialEvolutionState[StateDataT]

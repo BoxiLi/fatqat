@@ -201,6 +201,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         context: ExecutionContext,
         deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
+        initial_state: InitialEvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
         """Materialize and execute a plan under the resolved execution policy."""
 
@@ -210,6 +211,8 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         context: ExecutionContext,
         payload: Any,
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
         """Execute a materialized payload locally without dispatching."""
 
@@ -219,6 +222,8 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         payload: Any,
         seed_batch: list[np.random.SeedSequence],
         policy: ExecutionPolicy,
+        *,
+        initial_state: InitialEvolutionState[QuantumDataT],
     ) -> list[tuple[int, ...]]:
         """Execute one ordered shot batch on engines that support it."""
         raise NotImplementedError

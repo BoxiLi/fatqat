@@ -115,15 +115,14 @@ def test_kernel_specs_agree_with_content_classification():
 def _counts(engine_cls, plan, facts, dims, n_clbits, shots, seed, request):
     simulator = engine_cls()
     context = _ExecutionContext(
-        execution_shape=facts.execution_shape,
         request=request,
         system_dims=tuple(dims),
         n_clbits=n_clbits,
         shots=shots,
         seed=seed,
-        initial_state=_InitialEvolutionState(quantum=None),
     )
     policy = _ExecutionPolicy(
+        execution_shape=facts.execution_shape,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -140,6 +139,7 @@ def _counts(engine_cls, plan, facts, dims, n_clbits, shots, seed, request):
         context,
         payload,
         policy,
+        initial_state=_InitialEvolutionState(),
     )
     return list(zip(raw.outcome_keys.tolist(), raw.outcome_counts.tolist()))
 

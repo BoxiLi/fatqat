@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .._execution_contract import (
+    ExecutionShape,
     _InitialEvolutionState as InitialEvolutionState,
     _SimulationConfig as SimulationConfig,
     _KernelCapabilities as KernelCapabilities,
@@ -19,6 +20,7 @@ from ...errors import BackendValidationError
 class _ExecutionPolicy:
     """Final implementation and routing decisions for one execution."""
 
+    execution_shape: ExecutionShape
     shot_strategy: Literal["none", "serial", "threads", "processes"]
     kernel_strategy: Literal["serial", "adaptive", "threads"]
     worker_limit: int | None
@@ -70,6 +72,7 @@ def _materialization_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     if parent.shot_strategy != "processes":
         return parent
     return _ExecutionPolicy(
+        execution_shape=parent.execution_shape,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -82,6 +85,7 @@ def _process_child_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     """Revoke dispatch and preparation authority in a process child."""
     assert parent.shot_strategy == "processes"
     return _ExecutionPolicy(
+        execution_shape=parent.execution_shape,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -267,6 +271,7 @@ def _resolve_execution_policy(
 
     assert not use_compiled or kernel_strategy == "serial"
     return _ExecutionPolicy(
+        execution_shape=facts.execution_shape,
         shot_strategy=shot_strategy,
         kernel_strategy=kernel_strategy,
         worker_limit=worker_limit,

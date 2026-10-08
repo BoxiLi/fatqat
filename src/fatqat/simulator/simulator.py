@@ -152,7 +152,7 @@ class _PreparedRun(_PreparedExecution):
     config: _ResultConfig
     shots: int
     request: _ResultRequest
-    execution: _ExecutionContext
+    context: _ExecutionContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -786,14 +786,12 @@ class Simulator:
             backend_name=type(self).__name__,
         )
         request = self._validate_run_request(config, shots, prepared.facts)
-        execution = _ExecutionContext(
-            execution_shape=prepared.facts.execution_shape,
+        context = _ExecutionContext(
             request=request,
             system_dims=tuple(prepared.lowering.engine_allocation.system_dims),
             n_clbits=prepared.lowering.classical_allocation.n_clbits,
             shots=shots,
             seed=prepared.simulation.seed,
-            initial_state=prepared.initial_state,
         )
         return _PreparedRun(
             plan=prepared.plan,
@@ -804,7 +802,7 @@ class Simulator:
             config=config,
             shots=shots,
             request=request,
-            execution=execution,
+            context=context,
         )
 
     def _prepare_execution(
@@ -1118,19 +1116,18 @@ class Simulator:
         if prepared.state_policy is None:
             raise RuntimeError("expectation base execution has no resolved policy")
         context = _ExecutionContext(
-            execution_shape=execution.facts.execution_shape,
             request=prepared.state_request,
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
             shots=1,
             seed=execution.simulation.seed,
-            initial_state=execution.initial_state,
         )
         raw = self._engine.execute(
             plan=plan,
             deferred_measurements=execution.facts.deferred_measurements,
             context=context,
             policy=prepared.state_policy,
+            initial_state=execution.initial_state,
         )
         if raw.state is None:
             raise RuntimeError("expectation base execution returned no state")
@@ -1187,7 +1184,6 @@ class Simulator:
                     ),
                 )
             context = _ExecutionContext(
-                execution_shape=execution.facts.execution_shape,
                 request=prepared.sample_request,
                 system_dims=tuple(execution.lowering.engine_allocation.system_dims),
                 n_clbits=(
@@ -1196,7 +1192,6 @@ class Simulator:
                 ),
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
-                initial_state=initial,
             )
             plan = execution.plan
             assert isinstance(plan, tuple)
@@ -1205,6 +1200,7 @@ class Simulator:
                 deferred_measurements=execution.facts.deferred_measurements,
                 context=context,
                 policy=sample.policy,
+                initial_state=initial,
             )
             if raw.outcome_keys is None or raw.outcome_counts is None:
                 raise RuntimeError("sampled expectation execution returned no outcomes")
@@ -1243,7 +1239,8 @@ class Simulator:
             raw = self._engine.execute(
                 plan=plan,
                 deferred_measurements=prepared.facts.deferred_measurements,
-                context=prepared.execution,
+                context=prepared.context,
+                initial_state=prepared.initial_state,
                 policy=policy,
             )
             result = self._assemble_result(

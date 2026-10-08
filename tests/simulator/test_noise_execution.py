@@ -567,15 +567,14 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
         start = np.array([0, 1], dtype=complex)
         untouched = start.copy()
         context = _ExecutionContext(
-            execution_shape=facts.execution_shape,
             request=request,
             system_dims=(2,),
             n_clbits=1,
             shots=shots,
             seed=7,
-            initial_state=_InitialEvolutionState(quantum=start),
         )
         policy = _ExecutionPolicy(
+            execution_shape=facts.execution_shape,
             shot_strategy="serial",
             kernel_strategy="serial",
             worker_limit=1,
@@ -589,7 +588,12 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
             deferred_measurements=facts.deferred_measurements,
             policy=policy,
         )
-        raw = simulator.execute_local(context, payload, policy)
+        raw = simulator.execute_local(
+            context,
+            payload,
+            policy,
+            initial_state=_InitialEvolutionState(quantum=start),
+        )
         assert raw.state is None
         assert np.array_equal(start, untouched)
         if cls is NumbaSVEngine:

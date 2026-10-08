@@ -563,12 +563,14 @@ def test_execution_policy_rejects_inapplicable_requests(
 
 def test_process_policy_projections():
     local = _ExecutionPolicy(
+        execution_shape="per_shot",
         shot_strategy="serial",
         kernel_strategy="adaptive",
         worker_limit=None,
         fusion=False,
     )
     process = _ExecutionPolicy(
+        execution_shape="per_shot",
         shot_strategy="processes",
         kernel_strategy="serial",
         worker_limit=4,
@@ -577,12 +579,14 @@ def test_process_policy_projections():
 
     assert _materialization_policy(local) == local
     assert _materialization_policy(process) == _ExecutionPolicy(
+        execution_shape="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
         fusion=True,
     )
     assert _process_child_policy(process) == _ExecutionPolicy(
+        execution_shape="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,

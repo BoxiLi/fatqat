@@ -64,32 +64,6 @@ def _adaptive_thread_worker_ceiling(
     return max(1, min(requested, capabilities.thread_capacity))
 
 
-def _validate_execution_controls(
-    simulation: SimulationConfig,
-    capabilities: KernelCapabilities,
-    *,
-    supports_process_shots: bool,
-) -> None:
-    """Reject plan-independent engine controls before lowering."""
-    if (
-        simulation.kernel_parallelism == "threads"
-        and not capabilities.supports_kernel_threads
-    ):
-        raise BackendValidationError(
-            "kernel_parallelism='threads' requires an engine with threaded "
-            "numerical kernels"
-        )
-    if simulation.fusion and not capabilities.supports_fusion:
-        raise BackendValidationError(
-            "fusion=True is not supported by the selected matrix engine; fusion "
-            "does not control compiled multi-shot execution"
-        )
-    if simulation.shot_parallelism == "processes" and not supports_process_shots:
-        raise BackendValidationError(
-            "shot_parallelism='processes' is not supported by the selected engine"
-        )
-
-
 def _materialization_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     """Project process-shot preparation into local parent execution controls."""
     if parent.shot_strategy != "processes":

@@ -831,6 +831,7 @@ class Simulator:
             config,
             shots,
             prepared.facts,
+            simulation=simulation,
             initial_occupied=prepared.initial_occupied,
         )
         self._validate_additional_config(
@@ -874,7 +875,6 @@ class Simulator:
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
         capabilities = self._engine.capabilities
-        self._engine._validate_execution_controls(simulation)
         # Both hooks are resolved exactly once per run, before any execution
         # try block: capacity, dimension, grid-fit, and mapping failures must
         # raise directly, never become a failed Job. The resource layout is the
@@ -1068,9 +1068,10 @@ class Simulator:
                 "an exact statevector expectation is unavailable for stochastic "
                 "reset or channel execution; use density_matrix or positive shots"
             )
-        self._validate_method_support(
+        self._validate_engine_support(
             self._result_config_cls(),
             execution.facts,
+            simulation=execution.simulation,
             initial_occupied=execution.initial_occupied,
         )
         if shots > 0 and not execution.capabilities.supports_classical_register:
@@ -1454,6 +1455,7 @@ class Simulator:
         shots: int,
         facts: _PlanFacts,
         *,
+        simulation: _SimulationConfig,
         initial_occupied: frozenset[int] | None,
     ) -> _ResultRequest:
         """Validate result-config / shots constraints against the lowered program.
@@ -1461,9 +1463,10 @@ class Simulator:
         Operation support, stochasticity, and semantic execution shape were
         already translated into common facts by the selected backend.
         """
-        self._validate_method_support(
+        self._validate_engine_support(
             config,
             facts,
+            simulation=simulation,
             initial_occupied=initial_occupied,
         )
         stochastic = facts.stochastic_final_state
@@ -1506,20 +1509,43 @@ class Simulator:
         )
         return request
 
-    def _validate_method_support(
+    def _validate_engine_support(
         self,
         config: _ResultConfig,
         facts: _PlanFacts,
         *,
+        simulation: _SimulationConfig,
         initial_occupied: frozenset[int] | None,
     ) -> None:
-        """Reject programs and requests the chosen method cannot represent.
+        """Check the lowered program and controls against engine capabilities.
 
         Raises:
             BackendValidationError: If the lowered program or the result
-                request uses something this method cannot execute.
+                request or controls require unsupported engine capabilities.
         """
         capabilities = self._engine.capabilities
+        # Engine execution support, such as kernel threads, fusion, and process shots.
+        if (
+            simulation.kernel_parallelism == "threads"
+            and not capabilities.kernels.supports_kernel_threads
+        ):
+            raise BackendValidationError(
+                "kernel_parallelism='threads' requires an engine with threaded "
+                "numerical kernels"
+            )
+        if simulation.fusion and not capabilities.kernels.supports_fusion:
+            raise BackendValidationError(
+                "fusion=True is not supported by the selected matrix engine; fusion "
+                "does not control compiled multi-shot execution"
+            )
+        if (
+            simulation.shot_parallelism == "processes"
+            and not capabilities.supports_process_shots
+        ):
+            raise BackendValidationError(
+                "shot_parallelism='processes' is not supported by the selected engine"
+            )
+        # Engine method support, such as measurement, reset, channel noise, and classical register.
         method = self._state_field
         if facts.has_measurement and not capabilities.supports_classical_register:
             if not capabilities.quantum.is_operator:

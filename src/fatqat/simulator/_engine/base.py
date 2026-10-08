@@ -22,7 +22,6 @@ from ._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _resolve_execution_policy,
     _should_probe_compiled_multi_shot,
-    _validate_execution_controls,
 )
 from .state import EvolutionState, QuantumDataT, QuantumState
 
@@ -111,15 +110,6 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def compiled_multi_shot_compatible(self, plan: Sequence[ResolvedStep]) -> bool:
         """Whether this engine can own the complete per-shot outer loop."""
         return False
-
-    def _validate_execution_controls(self, simulation: SimulationConfig) -> None:
-        """Reject unsupported runtime controls before program lowering."""
-        capabilities = self.capabilities
-        _validate_execution_controls(
-            simulation,
-            capabilities.kernels,
-            supports_process_shots=capabilities.supports_process_shots,
-        )
 
     def resolve_execution_policy(
         self,

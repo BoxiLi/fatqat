@@ -21,7 +21,6 @@ from fatqat.simulator._engine._execution_policy import (
 )
 from fatqat.errors import BackendValidationError
 from fatqat.simulator import Simulator
-from fatqat.simulator._engine.np import NumpySVEngine
 
 
 @pytest.mark.parametrize(
@@ -87,37 +86,33 @@ def test_public_execution_configuration_defaults():
     )
 
 
-def test_kernel_threads_require_engine_support_before_execution():
-    program = fq.Program(1, 1)
-    program.measure(0, 0)
-
-    with pytest.raises(BackendValidationError, match="threaded numerical kernels"):
-        Simulator("unitary", runtime="numpy").run(
-            program, simulation_config={"kernel_parallelism": "threads"}
-        )
-
-
-@pytest.mark.parametrize("sweep", [False, True])
-def test_engine_runtime_limits_are_validated_before_execution(sweep):
-    class WorkerLimitedEngine(NumpySVEngine):
-        def _validate_execution_controls(self, simulation):
-            super()._validate_execution_controls(simulation)
-            if simulation.max_workers is not None and simulation.max_workers > 2:
-                raise BackendValidationError("runtime supports at most two workers")
-
+@pytest.mark.parametrize("request_kind", ["run", "sweep", "expectation"])
+@pytest.mark.parametrize(
+    "config, match",
+    [
+        ({"kernel_parallelism": "threads"}, "threaded numerical kernels"),
+        ({"fusion": True}, "fusion=True is not supported"),
+        ({"shot_parallelism": "processes"}, "processes.*not supported"),
+    ],
+)
+def test_engine_support_validates_execution_controls(
+    monkeypatch, request_kind, config, match
+):
     backend = Simulator("SV", runtime="numpy")
-    backend._engine = WorkerLimitedEngine()
+    monkeypatch.setattr(backend._engine, "_supports_process_shots", False)
     program = fq.Program(1)
     theta = fq.Parameter("theta")
-    program.add(ops.RX(theta if sweep else 0.1), 0)
+    program.add(ops.RX(theta if request_kind == "sweep" else 0.1), 0)
 
-    with pytest.raises(BackendValidationError, match="at most two workers"):
-        if sweep:
-            backend.run_sweep(
-                program, {theta: [0.1, 0.2]}, simulation_config={"max_workers": 3}
+    with pytest.raises(BackendValidationError, match=match):
+        if request_kind == "sweep":
+            backend.run_sweep(program, {theta: [0.1, 0.2]}, simulation_config=config)
+        elif request_kind == "expectation":
+            fq.Estimator(backend).run(
+                program, fq.Observable([("Z", 1.0)]), simulation_config=config
             )
         else:
-            backend.run(program, simulation_config={"max_workers": 3})
+            backend.run(program, simulation_config=config)
 
 
 def test_materialization_failure_belongs_to_the_job(monkeypatch):

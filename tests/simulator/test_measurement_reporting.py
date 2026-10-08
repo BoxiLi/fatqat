@@ -5,6 +5,7 @@ import numpy as np
 from fatqat.simulator._execution_contract import (
     _StateVectorResultRequest,
     _ExecutionContext,
+    _InitialEvolutionState,
 )
 from fatqat._backends.steps import ApplyMatrixStep, MeasurementStep
 from fatqat.implementation.matrices import shift_matrix
@@ -36,8 +37,7 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         n_clbits=1,
         shots=1,
         seed=9,
-        initial_state=None,
-        initial_occupied=None,
+        initial_state=_InitialEvolutionState(quantum=None),
     )
     policy = _ExecutionPolicy(
         shot_strategy="serial",

@@ -7,6 +7,7 @@ import numpy as np
 
 from .._execution_contract import (
     RawResult,
+    _InitialEvolutionState as InitialEvolutionState,
     _SimulationConfig as SimulationConfig,
     _EngineCapabilities,
     _KernelCapabilities,
@@ -112,7 +113,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         counts_requested: bool,
         state_requested: bool,
         shots: int,
-        initial_occupied: frozenset[int] | None,
+        initial_state: InitialEvolutionState[QuantumDataT],
     ) -> ExecutionPolicy:
         """Choose execution paths for a plan using this engine's support."""
         compiled_multi_shot_compatible = False
@@ -121,7 +122,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             facts=facts,
             counts_requested=counts_requested,
             state_requested=state_requested,
-            initial_occupied=initial_occupied,
+            initial_state=initial_state,
         ):
             compiled_multi_shot_compatible = self.compiled_multi_shot_compatible(plan)
         capabilities = self.capabilities
@@ -134,7 +135,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             supports_process_shots=capabilities.supports_process_shots,
             compiled_multi_shot_compatible=compiled_multi_shot_compatible,
             shots=shots,
-            initial_occupied=initial_occupied,
+            initial_state=initial_state,
             plan_is_empty=not plan,
         )
 
@@ -150,9 +151,9 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         system_dims: Sequence[int],
         n_clbits: int = 0,
         *,
-        initial_state: np.ndarray | QuantumDataT | None = None,
+        initial_state: InitialEvolutionState[QuantumDataT] | None = None,
     ) -> None:
-        """Allocate fresh storage, leaving host or native initial state unchanged."""
+        """Initialize owned quantum and classical storage from validated input."""
 
     def _set_dims(self, system_dims: Sequence[int]) -> None:
         """Set ``_dims`` and its cached reverse together, so they never drift apart."""

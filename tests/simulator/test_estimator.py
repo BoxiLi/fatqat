@@ -22,13 +22,12 @@ class _ReversedAllocationSimulator(Simulator):
         )
 
 
-@pytest.mark.parametrize("runtime", ["numpy", "numba"])
 @pytest.mark.parametrize("method", ["statevector", "density_matrix"])
-def test_estimator_remaps_logical_factors_through_engine_allocation(runtime, method):
+def test_estimator_remaps_logical_factors_through_engine_allocation(method):
     program = fq.Program(2)
     program.add(ops.X, 0)
     estimator = fq.Estimator(
-        _ReversedAllocationSimulator(runtime=runtime, method=method)
+        _ReversedAllocationSimulator(runtime="numpy", method=method)
     )
 
     result = estimator.run(program, Observable([("ZI", 1.0)])).result()

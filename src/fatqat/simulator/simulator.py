@@ -75,6 +75,8 @@ from ._execution_contract import (
     _StateVectorResultRequest,
     _SuperopResultRequest,
     _UnitaryResultRequest,
+    _InitialEvolutionState,
+    _InitialClassicalState,
 )
 from ._engine._execution_policy import _ExecutionPolicy
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
@@ -815,12 +817,17 @@ class Simulator:
             simulation=simulation,
             param_order=param_order,
         )
+        initial_state = _InitialEvolutionState(
+            quantum=prepared.initial_state,
+            classical=_InitialClassicalState(occupied=prepared.initial_occupied),
+        )
         request = self._validate(
             config,
             shots,
             prepared.facts,
             simulation_config=simulation,
-            initial_occupied=prepared.initial_occupied,
+            initial_classical=initial_state.classical,
+            n_clbits=prepared.lowering.classical_allocation.n_clbits,
         )
         self._validate_additional_config(
             config=config,
@@ -835,8 +842,7 @@ class Simulator:
             n_clbits=prepared.lowering.classical_allocation.n_clbits,
             shots=shots,
             seed=simulation.seed,
-            initial_state=prepared.initial_state,
-            initial_occupied=prepared.initial_occupied,
+            initial_state=initial_state,
         )
         return _PreparedRun(
             plan=prepared.plan,
@@ -1057,7 +1063,10 @@ class Simulator:
             self._result_config_cls(),
             execution.facts,
             simulation_config=execution.simulation,
-            initial_occupied=execution.initial_occupied,
+            initial_classical=_InitialClassicalState(
+                occupied=execution.initial_occupied
+            ),
+            n_clbits=execution.lowering.classical_allocation.n_clbits,
         )
         if shots > 0 and not self._engine.capabilities.supports_classical_register:
             raise UnsupportedOperationError(
@@ -1226,8 +1235,10 @@ class Simulator:
             n_clbits=execution.lowering.classical_allocation.n_clbits,
             shots=1,
             seed=execution.simulation.seed,
-            initial_state=execution.initial_state,
-            initial_occupied=execution.initial_occupied,
+            initial_state=_InitialEvolutionState(
+                quantum=execution.initial_state,
+                classical=_InitialClassicalState(occupied=execution.initial_occupied),
+            ),
         )
         raw = self._engine.execute(
             plan=plan,
@@ -1289,8 +1300,12 @@ class Simulator:
                 ),
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
-                initial_state=base_state,
-                initial_occupied=execution.initial_occupied,
+                initial_state=_InitialEvolutionState(
+                    quantum=base_state,
+                    classical=_InitialClassicalState(
+                        occupied=execution.initial_occupied
+                    ),
+                ),
             )
             plan = execution.plan
             assert isinstance(plan, tuple)
@@ -1369,7 +1384,10 @@ class Simulator:
             counts_requested=request.counts,
             state_requested=getattr(request, self._state_field),
             shots=shots,
-            initial_occupied=prepared.initial_occupied,
+            initial_state=_InitialEvolutionState(
+                quantum=prepared.initial_state,
+                classical=_InitialClassicalState(occupied=prepared.initial_occupied),
+            ),
         )
 
     # --- validation (raises directly from run) ---
@@ -1432,7 +1450,8 @@ class Simulator:
         facts: _PlanFacts,
         *,
         simulation_config: _SimulationConfig,
-        initial_occupied: frozenset[int] | None,
+        initial_classical: _InitialClassicalState,
+        n_clbits: int,
     ) -> _ResultRequest:
         """Validate result-config / shots constraints against the lowered program.
 
@@ -1443,7 +1462,8 @@ class Simulator:
             config,
             facts,
             simulation_config=simulation_config,
-            initial_occupied=initial_occupied,
+            initial_classical=initial_classical,
+            n_clbits=n_clbits,
         )
         stochastic = facts.stochastic_final_state
         counts, final_state = _resolve_result_flags(
@@ -1491,7 +1511,8 @@ class Simulator:
         facts: _PlanFacts,
         *,
         simulation_config: _SimulationConfig,
-        initial_occupied: frozenset[int] | None,
+        initial_classical: _InitialClassicalState,
+        n_clbits: int,
     ) -> None:
         """Check the lowered program and controls against engine capabilities.
 
@@ -1559,11 +1580,7 @@ class Simulator:
                 "represent a non-unitary map (use method='superop' for the "
                 "program's channel)"
             )
-        if initial_occupied is not None and not capabilities.supports_occupancy:
-            raise BackendValidationError(
-                f"method={method!r} cannot track carrier occupancy; the selected "
-                "engine has no occupancy state"
-            )
+        initial_classical.validate(capabilities=capabilities, n_clbits=n_clbits)
 
     def _validate_additional_config(
         self,

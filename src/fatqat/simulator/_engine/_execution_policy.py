@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from .._execution_contract import (
+    _InitialEvolutionState as InitialEvolutionState,
     _SimulationConfig as SimulationConfig,
     _KernelCapabilities as KernelCapabilities,
     _PlanFacts as PlanFacts,
@@ -96,7 +97,7 @@ def _should_probe_compiled_multi_shot(
     facts: PlanFacts,
     counts_requested: bool,
     state_requested: bool,
-    initial_occupied: frozenset[int] | None,
+    initial_state: InitialEvolutionState,
 ) -> bool:
     """Whether cheap prerequisites justify exact-plan compatibility analysis."""
     shot_request = simulation.shot_parallelism
@@ -111,7 +112,7 @@ def _should_probe_compiled_multi_shot(
         and facts.execution_shape == "per_shot"
         and counts_requested
         and not state_requested
-        and initial_occupied is None
+        and initial_state.classical.occupied is None
     )
 
 
@@ -142,14 +143,16 @@ def _resolve_execution_policy(
     compiled_multi_shot_compatible: bool,
     supports_process_shots: bool,
     shots: int,
-    initial_occupied: frozenset[int] | None,
+    initial_state: InitialEvolutionState,
     plan_is_empty: bool = False,
 ) -> _ExecutionPolicy:
     """Resolve validated controls and semantic facts into one final policy."""
     execution_has_shots = facts.execution_shape == "per_shot"
     shot_shardable = execution_has_shots and counts_requested and not state_requested
     compiled_eligible = (
-        shot_shardable and initial_occupied is None and compiled_multi_shot_compatible
+        shot_shardable
+        and initial_state.classical.occupied is None
+        and compiled_multi_shot_compatible
     )
     shot_request = simulation.shot_parallelism
     kernel_request = simulation.kernel_parallelism

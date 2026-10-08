@@ -19,7 +19,10 @@ from fatqat.noise import (
     default_channel_implementation_map,
 )
 from fatqat.simulator._engine.np import NumpySVEngine
-from fatqat.simulator._execution_contract import _ExecutionContext
+from fatqat.simulator._execution_contract import (
+    _ExecutionContext,
+    _InitialEvolutionState,
+)
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
 
@@ -570,8 +573,7 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
             n_clbits=1,
             shots=shots,
             seed=7,
-            initial_state=start,
-            initial_occupied=None,
+            initial_state=_InitialEvolutionState(quantum=start),
         )
         policy = _ExecutionPolicy(
             shot_strategy="serial",

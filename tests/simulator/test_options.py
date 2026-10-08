@@ -10,6 +10,8 @@ from fatqat.simulator._execution_contract import (
     _KernelCapabilities,
     _TrajectoryCapabilities,
     _PlanFacts,
+    _InitialEvolutionState,
+    _InitialClassicalState,
 )
 from fatqat.simulator._engine._execution_policy import (
     _ExecutionPolicy,
@@ -84,13 +86,18 @@ def test_public_execution_configuration_defaults():
     )
 
 
-@pytest.mark.parametrize("request_kind", ["run", "sweep", "expectation"])
 @pytest.mark.parametrize(
-    "config, match",
+    "request_kind, config, match",
     [
-        ({"kernel_parallelism": "threads"}, "threaded numerical kernels"),
-        ({"fusion": True}, "fusion=True is not supported"),
-        ({"shot_parallelism": "processes"}, "processes.*not supported"),
+        ("run", {"kernel_parallelism": "threads"}, "threaded numerical kernels"),
+        ("run", {"fusion": True}, "fusion=True is not supported"),
+        ("run", {"shot_parallelism": "processes"}, "processes.*not supported"),
+        ("sweep", {"kernel_parallelism": "threads"}, "threaded numerical kernels"),
+        (
+            "expectation",
+            {"kernel_parallelism": "threads"},
+            "threaded numerical kernels",
+        ),
     ],
 )
 def test_engine_support_validates_execution_controls(
@@ -391,7 +398,9 @@ def test_execution_policy_decision_table(
         compiled_multi_shot_compatible=compatible,
         supports_process_shots=True,
         shots=shots,
-        initial_occupied=initial_occupied,
+        initial_state=_InitialEvolutionState(
+            quantum=None, classical=_InitialClassicalState(occupied=initial_occupied)
+        ),
     )
 
     assert (
@@ -429,7 +438,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         compiled_multi_shot_compatible=False,
         supports_process_shots=True,
         shots=64,
-        initial_occupied=None,
+        initial_state=_InitialEvolutionState(quantum=None),
     )
 
     assert policy.worker_limit == 3
@@ -547,7 +556,7 @@ def test_execution_policy_rejects_inapplicable_requests(
             compiled_multi_shot_compatible=compatible,
             supports_process_shots=True,
             shots=shots,
-            initial_occupied=None,
+            initial_state=_InitialEvolutionState(quantum=None),
             plan_is_empty=plan_is_empty,
         )
 

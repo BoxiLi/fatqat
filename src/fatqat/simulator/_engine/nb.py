@@ -131,7 +131,7 @@ from .np import (
     NumpySVEngine,
     NumpyUnitaryEngine,
 )
-from .state import NumbaEvolutionState
+from .state import NumbaClassicalState, NumbaEvolutionState, NumbaQuantumState
 
 # Numba fixes the launch pool's capacity at import time. ``set_num_threads``
 # changes only the active mask, so policy ceilings clamp to this configured
@@ -1506,7 +1506,7 @@ def _reset_step(
 
 
 @njit(cache=True, inline="always")
-def _initialize_shot_state(start, state_size, custom_start, n_clbits):
+def _initialize_shot_state(start, state_size, custom_start, n_clbits, clbits_start):
     """Allocate one shot's quantum and classical buffers without sharing them."""
     if custom_start:
         # A supplied template must survive unchanged to seed every trajectory.
@@ -1515,7 +1515,10 @@ def _initialize_shot_state(start, state_size, custom_start, n_clbits):
         # Construct |0...0> directly, without an O(D) template to copy.
         quantum = np.zeros(state_size, dtype=np.complex128)
         quantum[0] = 1.0 + 0.0j
-    return NumbaEvolutionState(quantum, np.zeros(n_clbits, dtype=np.int64))
+    clbits = (
+        clbits_start.copy() if clbits_start.size else np.zeros(n_clbits, dtype=np.int64)
+    )
+    return NumbaEvolutionState(NumbaQuantumState(quantum), NumbaClassicalState(clbits))
 
 
 @njit(cache=True, parallel=True)
@@ -1577,6 +1580,7 @@ def _run_shots_kernel(
     start,  # custom-state template; empty when the default state is requested
     state_size,  # flat state width, kept explicit when `start` is empty
     custom_start,  # whether each shot must copy `start` rather than build |0...0>
+    clbits_start,  # initial report digits; empty for zero initialization
     n_clbits,  # classical-register width: per-shot clbits and result columns
     shots,  # number of independent trajectories - the `prange` extent
     uniforms,  # pre-drawn uniforms, shots*max_draws in execution order
@@ -1596,13 +1600,15 @@ def _run_shots_kernel(
     num_steps = step_kind.shape[0]
     results = np.zeros((shots, n_clbits), dtype=np.int64)
     for shot in prange(shots):  # pylint: disable=not-an-iterable
-        evolution = _initialize_shot_state(start, state_size, custom_start, n_clbits)
+        evolution = _initialize_shot_state(
+            start, state_size, custom_start, n_clbits, clbits_start
+        )
         draw = shot * max_draws
 
         for st in range(num_steps):
             kind = step_kind[st]
             passes = _condition_passes(
-                evolution.classical,
+                evolution.classical.clbits,
                 cond_clbit,
                 cond_value,
                 step_cond_ptr[st],
@@ -1610,8 +1616,8 @@ def _run_shots_kernel(
             )
             if kind == 1:  # measurement (unconditional)
                 quantum, draw = _measure_step(
-                    evolution.quantum,
-                    evolution.classical,
+                    evolution.quantum.data,
+                    evolution.classical.clbits,
                     step_data[st],
                     me_ptr,
                     me_len,
@@ -1623,10 +1629,12 @@ def _run_shots_kernel(
                     uniforms,
                     draw,
                 )
-                evolution = NumbaEvolutionState(quantum, evolution.classical)
+                evolution = NumbaEvolutionState(
+                    NumbaQuantumState(quantum), evolution.classical
+                )
             elif kind == 0 and passes:  # gate
                 _apply_step(
-                    evolution.quantum,
+                    evolution.quantum.data,
                     step_data[st],
                     ap_mat_ptr,
                     ap_dim,
@@ -1644,7 +1652,7 @@ def _run_shots_kernel(
                 )
             elif kind == 2 and passes:  # reset
                 quantum = _reset_step(
-                    evolution.quantum,
+                    evolution.quantum.data,
                     step_data[st],
                     rs_ptr,
                     rs_len,
@@ -1652,11 +1660,13 @@ def _run_shots_kernel(
                     rs_dim,
                     uniforms[draw],
                 )
-                evolution = NumbaEvolutionState(quantum, evolution.classical)
+                evolution = NumbaEvolutionState(
+                    NumbaQuantumState(quantum), evolution.classical
+                )
                 draw += 1
             elif kind == 3 and passes:  # channel noise (applied in place)
                 _channel_step(
-                    evolution.quantum,
+                    evolution.quantum.data,
                     step_data[st],
                     ch_kra_ptr,
                     ch_num_kraus,
@@ -1679,7 +1689,7 @@ def _run_shots_kernel(
                 draw += 1
 
         for c in range(n_clbits):
-            results[shot, c] = evolution.classical[c]
+            results[shot, c] = evolution.classical.clbits[c]
     return results
 
 
@@ -1959,23 +1969,26 @@ class NumbaSVEngine(NumpySVEngine):
             ).random(max_draws)
 
         state_size = prod(self._dims) if self._dims else 1
-        custom_start = context.initial_state is not None
+        custom_start = context.initial_state.quantum is not None
         # The custom template is read-only: each shot takes the private copy it
         # evolves. `ascontiguousarray` therefore aliases the validated common
         # case and copies only when layout or dtype requires it. The default
         # path passes no O(D) template at all.
         start = (
-            np.ascontiguousarray(context.initial_state, dtype=np.complex128).reshape(
-                state_size
-            )
+            np.ascontiguousarray(
+                context.initial_state.quantum, dtype=np.complex128
+            ).reshape(state_size)
             if custom_start
             else np.empty(0, dtype=np.complex128)
         )
+        clbits = context.initial_state.classical.clbits
+        clbits_start = np.asarray(clbits if clbits is not None else (), dtype=np.int64)
         rows = _run_shots_kernel(
             *plan_arrays,
             start,
             state_size,
             custom_start,
+            clbits_start,
             self._n_clbits,
             shots,
             uniforms,

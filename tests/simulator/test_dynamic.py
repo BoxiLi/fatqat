@@ -20,11 +20,10 @@ def test_lower_terminal_measurement_is_not_dynamic():
     p.measure(1, 1)
     backend = Simulator("SV")
     _plan, facts = backend._lower_program(p)
-    execution_path, deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
     assert execution_path == "single_pass"
-    assert deferred == ((1, 0), (0, 1))
     assert facts.written_clbits == frozenset({0, 1})
     assert facts.stochastic_final_state is True
     assert facts.has_measurement is True
@@ -39,11 +38,10 @@ def test_lower_measure_then_gate_on_disjoint_qubit_is_not_dynamic():
     p.measure(1, 1)
     backend = Simulator("SV")
     _plan, _facts = backend._lower_program(p)
-    execution_path, deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
     assert execution_path == "single_pass"
-    assert deferred == ((1, 0), (0, 1))
 
 
 def test_lower_gate_on_measured_qubit_is_dynamic():
@@ -53,11 +51,10 @@ def test_lower_gate_on_measured_qubit_is_dynamic():
     p.add(ops.X, 0)  # gate on already-measured qubit
     backend = Simulator("SV")
     _plan, _facts = backend._lower_program(p)
-    execution_path, deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
     assert execution_path == "per_shot"
-    assert deferred == ()
 
 
 def test_repeated_measurement_of_one_subsystem_is_per_shot():
@@ -67,12 +64,11 @@ def test_repeated_measurement_of_one_subsystem_is_per_shot():
 
     backend = Simulator("SV")
     _plan, facts = backend._lower_program(program)
-    execution_path, deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
 
     assert execution_path == "per_shot"
-    assert deferred == ()
     assert facts.written_clbits == frozenset({0, 1})
 
 
@@ -81,7 +77,7 @@ def test_lower_condition_is_dynamic_and_resolves_indices():
     p.add(ops.X, 1, condition=(0, 1))
     backend = Simulator("SV")
     plan, facts = backend._lower_program(p)
-    execution_path, _deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         plan, initial_state=backend._prepare_initial_state(None)
     )
     assert execution_path == "per_shot"
@@ -117,7 +113,7 @@ def test_nonunitary_semantics_are_method_owned(
 
     backend = Simulator(method, runtime="numpy", noise=noise)
     _plan, facts = backend._lower_program(program)
-    execution_path, _deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
 
@@ -134,12 +130,11 @@ def test_per_shot_trigger_does_not_stop_later_fact_collection():
 
     backend = Simulator("SV")
     _plan, facts = backend._lower_program(program)
-    execution_path, deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
 
     assert execution_path == "per_shot"
-    assert deferred == ()
     assert facts.written_clbits == frozenset({1})
     assert facts.has_condition is True
     assert facts.has_measurement is True
@@ -333,7 +328,7 @@ def test_lower_grouped_measurement_emits_one_grouped_step():
 
     backend = Simulator("SV")
     plan, facts = backend._lower_program(p)
-    execution_path, _deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         plan, initial_state=backend._prepare_initial_state(None)
     )
 
@@ -349,7 +344,7 @@ def test_lower_adjacent_single_measurements_stay_separate_steps():
 
     backend = Simulator("SV")
     plan, _facts = backend._lower_program(p)
-    execution_path, _deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         plan, initial_state=backend._prepare_initial_state(None)
     )
 
@@ -366,7 +361,7 @@ def test_lower_grouped_reset_uses_all_targets():
 
     backend = Simulator("SV")
     plan, facts = backend._lower_program(p)
-    execution_path, _deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         plan, initial_state=backend._prepare_initial_state(None)
     )
 

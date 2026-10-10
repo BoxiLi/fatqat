@@ -332,27 +332,23 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         plan: Sequence[ResolvedStep],
         *,
         initial_state: InitialEvolutionState[np.ndarray],
-    ) -> tuple[
-        Literal["operator", "single_pass", "per_shot"], tuple[tuple[int, int], ...]
-    ]:
+    ) -> Literal["operator", "single_pass", "per_shot"]:
         quantum = self.capabilities.quantum
         if quantum.is_operator:
-            return "operator", ()
+            return "operator"
         # Only the trajectory executor handles occupancy and erasure reports.
         if initial_state.classical.occupied is not None:
-            return "per_shot", ()
+            return "per_shot"
         measured: set[int] = set()
-        deferred: list[tuple[int, int]] = []
         for step in plan:
             if getattr(step, "condition", None) is not None or isinstance(
                 step, (PutStep, LossStep)
             ):
-                return "per_shot", ()
+                return "per_shot"
             if isinstance(step, MeasurementStep):
                 if measured.intersection(step.measured_indices):
-                    return "per_shot", ()
+                    return "per_shot"
                 measured.update(step.measured_indices)
-                deferred.extend(zip(step.measured_indices, step.classical_indices))
                 continue
             if isinstance(step, ResetStep):
                 targets = step.reset_indices
@@ -362,10 +358,10 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
                 isinstance(step, (ResetStep, ApplyChannelStep))
                 and quantum.nonunitary_is_stochastic
             ):
-                return "per_shot", ()
+                return "per_shot"
             if measured.intersection(targets):
-                return "per_shot", ()
-        return "single_pass", tuple(deferred)
+                return "per_shot"
+        return "single_pass"
 
     def materialize_execution(
         self,
@@ -378,7 +374,17 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         """Retain the canonical plan and finalized deferred measurements."""
         self.configure_system(system_dims, n_clbits)
         self._retain_step_caches(plan)
-        return plan, policy.deferred_measurements
+        measurements = (
+            tuple(
+                pair
+                for step in plan
+                if isinstance(step, MeasurementStep)
+                for pair in zip(step.measured_indices, step.classical_indices)
+            )
+            if policy.execution_path == "single_pass"
+            else ()
+        )
+        return plan, measurements
 
     def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
         """Retain only the effective plan's identity-keyed step resolutions.

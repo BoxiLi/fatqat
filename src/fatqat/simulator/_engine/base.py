@@ -115,9 +115,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         initial_state: InitialEvolutionState[QuantumDataT],
     ) -> ExecutionPolicy:
         """Choose execution paths for a plan using this engine's support."""
-        execution_path, deferred_measurements = self._select_execution_path(
-            plan, initial_state=initial_state
-        )
+        execution_path = self._select_execution_path(plan, initial_state=initial_state)
         compiled_multi_shot_compatible = False
         if _should_probe_compiled_multi_shot(
             simulation,
@@ -138,7 +136,6 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             compiled_multi_shot_compatible=compiled_multi_shot_compatible,
             shots=shots,
             initial_state=initial_state,
-            deferred_measurements=deferred_measurements,
             plan_is_empty=not plan,
         )
 
@@ -148,10 +145,8 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         plan: Sequence[ResolvedStep],
         *,
         initial_state: InitialEvolutionState[QuantumDataT],
-    ) -> tuple[
-        Literal["operator", "single_pass", "per_shot"], tuple[tuple[int, int], ...]
-    ]:
-        """Select a supported path and the measurements it can defer."""
+    ) -> Literal["operator", "single_pass", "per_shot"]:
+        """Select a supported execution path."""
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         """Configure dimensions without allocating an evolving state."""

@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 import numpy as np
 import pytest
 
@@ -50,11 +48,9 @@ def _run(
     plan,
     context,
     *,
-    deferred_measurements=(),
     policy=_SERIAL,
     initial_state=None,
 ):
-    policy = replace(policy, deferred_measurements=tuple(deferred_measurements))
     payload = engine.materialize_execution(
         tuple(plan),
         system_dims=context.system_dims,
@@ -92,7 +88,7 @@ def test_engine_fast_counts_returns_arrays():
         request=_StateVectorResultRequest(counts=True, statevector=False),
     )
 
-    result = _run(engine, plan, context, deferred_measurements=((0, 0),))
+    result = _run(engine, plan, context)
 
     assert result.state is None
     assert result.outcome_keys.tolist() == [[1]]
@@ -110,7 +106,7 @@ def test_engine_fast_counts_and_state_share_collapse_event():
         request=_StateVectorResultRequest(counts=True, statevector=True),
     )
 
-    result = _run(engine, plan, context, deferred_measurements=((0, 0),))
+    result = _run(engine, plan, context)
 
     measured = int(result.outcome_keys[0, 0])
     assert result.outcome_counts.tolist() == [1]
@@ -230,13 +226,11 @@ def test_fast_counts_preserve_unwritten_initial_digits(measure):
         request=_StateVectorResultRequest(counts=True, statevector=False),
     )
     plan = [MeasurementStep((0,), (0,))] if measure else []
-    deferred = ((0, 0),) if measure else ()
 
     result = _run(
         NumpySVEngine(),
         plan,
         context,
-        deferred_measurements=deferred,
         initial_state=initial,
     )
 

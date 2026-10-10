@@ -121,12 +121,11 @@ def _counts(engine_cls, plan, dims, n_clbits, shots, seed, request):
         shots=shots,
         seed=seed,
     )
-    execution_path, measurements = simulator._select_execution_path(
+    execution_path = simulator._select_execution_path(
         plan, initial_state=_InitialEvolutionState()
     )
     policy = _ExecutionPolicy(
         execution_path=execution_path,
-        deferred_measurements=measurements,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,

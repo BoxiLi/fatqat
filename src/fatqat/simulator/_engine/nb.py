@@ -2367,12 +2367,15 @@ class NumbaDMEngine(NumpyDMEngine):
         policy: ExecutionPolicy,
     ):
         """Apply the optional gate/channel rewrite exactly once."""
-        self.configure_system(system_dims, n_clbits)
         execution_plan = (
             tuple(_fuse_gate_channels(list(plan))) if policy.fusion else plan
         )
-        # Fusion can replace gates with new channel steps; retain those identities.
-        self._retain_step_caches(execution_plan)
+        execution_plan, measurements = super().materialize_execution(
+            execution_plan,
+            system_dims=system_dims,
+            n_clbits=n_clbits,
+            policy=policy,
+        )
         targets = {
             tuple(step.target_indices)
             for step in execution_plan
@@ -2389,7 +2392,7 @@ class NumbaDMEngine(NumpyDMEngine):
         }
         return (
             execution_plan,
-            policy.deferred_measurements,
+            measurements,
             tuple(self._sandwich_plans.items()),
         )
 

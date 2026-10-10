@@ -89,7 +89,7 @@ def test_readout_confusion_keeps_single_pass_shape():
     program = _measured_program()
     backend = Simulator("statevector", noise=_readout_model(_FLIP_30))
     _plan, _facts = backend._lower_program(program)
-    execution_path, _deferred = backend._engine._select_execution_path(
+    execution_path = backend._engine._select_execution_path(
         _plan, initial_state=backend._prepare_initial_state(None)
     )
 

@@ -24,7 +24,6 @@ class _ExecutionPolicy:
     worker_limit: int | None
     fusion: bool
     use_compiled_multi_shot_kernel: bool = False
-    deferred_measurements: tuple[tuple[int, int], ...] = ()
 
 
 _PARALLEL_MIN_SHOTS = 32
@@ -72,7 +71,6 @@ def _materialization_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
         return parent
     return _ExecutionPolicy(
         execution_path=parent.execution_path,
-        deferred_measurements=parent.deferred_measurements,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -86,7 +84,6 @@ def _process_child_policy(parent: _ExecutionPolicy) -> _ExecutionPolicy:
     assert parent.shot_strategy == "processes"
     return _ExecutionPolicy(
         execution_path=parent.execution_path,
-        deferred_measurements=parent.deferred_measurements,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -149,7 +146,6 @@ def _resolve_execution_policy(
     supports_process_shots: bool,
     shots: int,
     initial_state: InitialEvolutionState,
-    deferred_measurements: tuple[tuple[int, int], ...] = (),
     plan_is_empty: bool = False,
 ) -> _ExecutionPolicy:
     """Resolve validated controls and semantic facts into one final policy."""
@@ -274,7 +270,6 @@ def _resolve_execution_policy(
     assert not use_compiled or kernel_strategy == "serial"
     return _ExecutionPolicy(
         execution_path=execution_path,
-        deferred_measurements=deferred_measurements,
         shot_strategy=shot_strategy,
         kernel_strategy=kernel_strategy,
         worker_limit=worker_limit,

@@ -227,11 +227,15 @@ def test_atom_lifecycle_translates_to_common_facts():
     program = Program(1)
     program.add(ops.Put, 0)
 
-    _plan, facts = AtomArraySimulator()._prepare_program(program)
+    backend = AtomArraySimulator()
+    _plan, facts = backend._prepare_program(program)
+    execution_path, deferred = backend._engine._select_execution_path(
+        _plan, initial_state=backend._prepare_initial_state(None)
+    )
 
-    assert facts.execution_shape == "per_shot"
+    assert execution_path == "per_shot"
     assert facts.stochastic_final_state is False
-    assert facts.deferred_measurements == ()
+    assert deferred == ()
 
 
 def test_atom_loss_translates_to_stochastic_per_shot_execution():
@@ -241,9 +245,13 @@ def test_atom_loss_translates_to_stochastic_per_shot_execution():
     program.add(ops.Put, 0)
     program.add(ops.RX(0.1), 0)
 
-    _plan, facts = AtomArraySimulator(noise=noise)._prepare_program(program)
+    backend = AtomArraySimulator(noise=noise)
+    _plan, facts = backend._prepare_program(program)
+    execution_path, _deferred = backend._engine._select_execution_path(
+        _plan, initial_state=backend._prepare_initial_state(None)
+    )
 
-    assert facts.execution_shape == "per_shot"
+    assert execution_path == "per_shot"
     assert facts.stochastic_final_state is True
 
 
@@ -263,11 +271,14 @@ def test_atom_extension_steps_preserve_conditions(step_kind, step_type):
 
     backend = AtomArraySimulator(noise=noise)
     plan, _facts = backend._lower_program(program)
+    execution_path, _deferred = backend._engine._select_execution_path(
+        plan, initial_state=backend._prepare_initial_state(None)
+    )
     extension = next(step for step in plan if isinstance(step, step_type))
 
     assert extension.condition == ((0, 0),)
     facts = backend._analyze_lowered_plan((extension,))
-    assert facts.execution_shape == "per_shot"
+    assert execution_path == "per_shot"
     assert facts.has_condition is True
 
 
@@ -276,10 +287,14 @@ def test_atom_lifecycle_clears_deferred_measurements():
     program.add(ops.Put, 0)
     program.measure(0, 0)
 
-    _plan, facts = AtomArraySimulator()._lower_program(program)
+    backend = AtomArraySimulator()
+    _plan, facts = backend._lower_program(program)
+    execution_path, deferred = backend._engine._select_execution_path(
+        _plan, initial_state=backend._prepare_initial_state(None)
+    )
 
-    assert facts.execution_shape == "per_shot"
-    assert facts.deferred_measurements == ()
+    assert execution_path == "per_shot"
+    assert deferred == ()
     assert facts.written_clbits == frozenset({0})
 
 

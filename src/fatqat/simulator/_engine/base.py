@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
-from typing import Any, Generic
+from typing import Any, Generic, Literal
 
 import numpy as np
 
@@ -15,7 +15,6 @@ from .._execution_contract import (
     _QuantumCapabilities,
     _TrajectoryCapabilities,
     _ExecutionContext as ExecutionContext,
-    _PlanFacts as PlanFacts,
 )
 from ..._backends.steps import ApplyMatrixStep, ResolvedStep
 from ._execution_policy import (
@@ -110,17 +109,19 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         plan: Sequence[ResolvedStep],
         simulation: SimulationConfig,
         *,
-        facts: PlanFacts,
         counts_requested: bool,
         state_requested: bool,
         shots: int,
         initial_state: InitialEvolutionState[QuantumDataT],
     ) -> ExecutionPolicy:
         """Choose execution paths for a plan using this engine's support."""
+        execution_path, deferred_measurements = self._select_execution_path(
+            plan, initial_state=initial_state
+        )
         compiled_multi_shot_compatible = False
         if _should_probe_compiled_multi_shot(
             simulation,
-            facts=facts,
+            execution_path=execution_path,
             counts_requested=counts_requested,
             state_requested=state_requested,
             initial_state=initial_state,
@@ -129,7 +130,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         capabilities = self.capabilities
         return _resolve_execution_policy(
             simulation,
-            facts=facts,
+            execution_path=execution_path,
             counts_requested=counts_requested,
             state_requested=state_requested,
             capabilities=capabilities.kernels,
@@ -137,8 +138,20 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             compiled_multi_shot_compatible=compiled_multi_shot_compatible,
             shots=shots,
             initial_state=initial_state,
+            deferred_measurements=deferred_measurements,
             plan_is_empty=not plan,
         )
+
+    @abstractmethod
+    def _select_execution_path(
+        self,
+        plan: Sequence[ResolvedStep],
+        *,
+        initial_state: InitialEvolutionState[QuantumDataT],
+    ) -> tuple[
+        Literal["operator", "single_pass", "per_shot"], tuple[tuple[int, int], ...]
+    ]:
+        """Select a supported path and the measurements it can defer."""
 
     def configure_system(self, system_dims: Sequence[int], n_clbits: int = 0) -> None:
         """Configure dimensions without allocating an evolving state."""
@@ -168,7 +181,6 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         *,
         system_dims: tuple[int, ...],
         n_clbits: int,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
     ) -> Any:
         """Build the engine-owned immutable payload outside execution scope.
@@ -199,7 +211,6 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         plan: tuple[ResolvedStep, ...],
         *,
         context: ExecutionContext,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
         initial_state: InitialEvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:

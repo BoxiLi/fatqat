@@ -62,7 +62,7 @@ from abc import abstractmethod
 from collections.abc import Callable, Sequence
 from functools import partial
 from math import prod
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -327,20 +327,58 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         flat = self.collapse(indices, rng)
         return tuple(_digit(flat, index, self._dims) for index in indices)
 
+    def _select_execution_path(
+        self,
+        plan: Sequence[ResolvedStep],
+        *,
+        initial_state: InitialEvolutionState[np.ndarray],
+    ) -> tuple[
+        Literal["operator", "single_pass", "per_shot"], tuple[tuple[int, int], ...]
+    ]:
+        quantum = self.capabilities.quantum
+        if quantum.is_operator:
+            return "operator", ()
+        # Only the trajectory executor handles occupancy and erasure reports.
+        if initial_state.classical.occupied is not None:
+            return "per_shot", ()
+        measured: set[int] = set()
+        deferred: list[tuple[int, int]] = []
+        for step in plan:
+            if getattr(step, "condition", None) is not None or isinstance(
+                step, (PutStep, LossStep)
+            ):
+                return "per_shot", ()
+            if isinstance(step, MeasurementStep):
+                if measured.intersection(step.measured_indices):
+                    return "per_shot", ()
+                measured.update(step.measured_indices)
+                deferred.extend(zip(step.measured_indices, step.classical_indices))
+                continue
+            if isinstance(step, ResetStep):
+                targets = step.reset_indices
+            else:
+                targets = step.target_indices
+            if (
+                isinstance(step, (ResetStep, ApplyChannelStep))
+                and quantum.nonunitary_is_stochastic
+            ):
+                return "per_shot", ()
+            if measured.intersection(targets):
+                return "per_shot", ()
+        return "single_pass", tuple(deferred)
+
     def materialize_execution(
         self,
         plan: tuple[ResolvedStep, ...],
         *,
         system_dims: tuple[int, ...],
         n_clbits: int,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
     ) -> tuple[tuple[ResolvedStep, ...], tuple[tuple[int, int], ...]]:
         """Retain the canonical plan and finalized deferred measurements."""
-        del policy
         self.configure_system(system_dims, n_clbits)
         self._retain_step_caches(plan)
-        return plan, deferred_measurements
+        return plan, policy.deferred_measurements
 
     def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
         """Retain only the effective plan's identity-keyed step resolutions.
@@ -359,7 +397,6 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         plan: tuple[ResolvedStep, ...],
         *,
         context: ExecutionContext,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
         initial_state: InitialEvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
@@ -368,7 +405,6 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
             plan,
             system_dims=context.system_dims,
             n_clbits=context.n_clbits,
-            deferred_measurements=deferred_measurements,
             policy=_materialization_policy(policy),
         )
         if policy.shot_strategy in ("none", "serial", "threads"):
@@ -410,11 +446,11 @@ class _NumpyMatrixEngine(MatrixEngine[np.ndarray]):
         self.configure_system(context.system_dims, context.n_clbits)
         plan, measurements = payload[:2]
         with self._execution_scope(policy):
-            if policy.execution_shape == "per_shot":
+            if policy.execution_path == "per_shot":
                 return self._run_per_shot_local(
                     plan, context, initial_state=initial_state
                 )
-            assert policy.execution_shape == "single_pass"
+            assert policy.execution_path == "single_pass"
             return self._run_fast(
                 plan,
                 measurements,
@@ -938,7 +974,7 @@ class _NumpyOperatorEngine(_NumpyMatrixEngine):
     ) -> RawResult[np.ndarray]:
         """Evolve one already-materialized operator plan in this process."""
         assert policy.shot_strategy == "none"
-        assert policy.execution_shape == "operator"
+        assert policy.execution_path == "operator"
         self.configure_system(context.system_dims, context.n_clbits)
         plan = payload[0]
         with self._execution_scope(policy):

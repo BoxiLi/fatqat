@@ -38,7 +38,7 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         seed=9,
     )
     policy = _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -48,7 +48,6 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         plan,
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
-        deferred_measurements=(),
         policy=policy,
     )
     result = engine.execute_local(

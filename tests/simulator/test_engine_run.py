@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -19,7 +21,7 @@ from fatqat.errors import BackendValidationError
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
 _SERIAL = _ExecutionPolicy(
-    execution_shape="single_pass",
+    execution_path="single_pass",
     shot_strategy="none",
     kernel_strategy="serial",
     worker_limit=1,
@@ -52,11 +54,11 @@ def _run(
     policy=_SERIAL,
     initial_state=None,
 ):
+    policy = replace(policy, deferred_measurements=tuple(deferred_measurements))
     payload = engine.materialize_execution(
         tuple(plan),
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
-        deferred_measurements=tuple(deferred_measurements),
         policy=policy,
     )
     return engine.execute_local(
@@ -148,7 +150,7 @@ def test_occupancy_loss_reload_and_feedback_start_fresh(runtime, occupied, repor
         classical=_InitialClassicalState(occupied=occupied)
     )
     policy = _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -198,7 +200,7 @@ def test_initial_register_drives_feedback_and_is_fresh_per_shot(mode):
         request=_StateVectorResultRequest(counts=True, statevector=False),
     )
     policy = _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="processes" if mode == "processes" else "serial",
         kernel_strategy="serial",
         worker_limit=2 if mode == "processes" else 1,
@@ -209,7 +211,6 @@ def test_initial_register_drives_feedback_and_is_fresh_per_shot(mode):
     result = engine.execute(
         tuple(plan),
         context=context,
-        deferred_measurements=(),
         policy=policy,
         initial_state=initial,
     )

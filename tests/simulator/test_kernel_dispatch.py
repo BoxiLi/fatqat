@@ -112,7 +112,7 @@ def test_kernel_specs_agree_with_content_classification():
     assert seen == set(BuiltinKernelKey)  # the case table covers every gate
 
 
-def _counts(engine_cls, plan, facts, dims, n_clbits, shots, seed, request):
+def _counts(engine_cls, plan, dims, n_clbits, shots, seed, request):
     simulator = engine_cls()
     context = _ExecutionContext(
         request=request,
@@ -121,8 +121,12 @@ def _counts(engine_cls, plan, facts, dims, n_clbits, shots, seed, request):
         shots=shots,
         seed=seed,
     )
+    execution_path, measurements = simulator._select_execution_path(
+        plan, initial_state=_InitialEvolutionState()
+    )
     policy = _ExecutionPolicy(
-        execution_shape=facts.execution_shape,
+        execution_path=execution_path,
+        deferred_measurements=measurements,
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
@@ -132,7 +136,6 @@ def _counts(engine_cls, plan, facts, dims, n_clbits, shots, seed, request):
         tuple(plan),
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
-        deferred_measurements=facts.deferred_measurements,
         policy=policy,
     )
     raw = simulator.execute_local(
@@ -146,8 +149,8 @@ def _counts(engine_cls, plan, facts, dims, n_clbits, shots, seed, request):
 
 def _plan_and_request(program):
     backend = Simulator()
-    plan, facts = backend._lower_program(program)
-    return plan, facts, backend._request_cls(counts=True, statevector=False)
+    plan, _facts = backend._lower_program(program)
+    return plan, backend._request_cls(counts=True, statevector=False)
 
 
 def test_keyed_dispatch_matches_numpy_across_structure_classes():
@@ -162,10 +165,10 @@ def test_keyed_dispatch_matches_numpy_across_structure_classes():
     program.add(ops.RX(1.1), 2)
     program.add(ops.X, 1)
     program.measure((0, 1, 2), (0, 1, 2))
-    plan, facts, request = _plan_and_request(program)
+    plan, request = _plan_and_request(program)
 
-    numpy_counts = _counts(NumpySVEngine, plan, facts, (2, 2, 2), 3, 300, 11, request)
-    numba_counts = _counts(NumbaSVEngine, plan, facts, (2, 2, 2), 3, 300, 11, request)
+    numpy_counts = _counts(NumpySVEngine, plan, (2, 2, 2), 3, 300, 11, request)
+    numba_counts = _counts(NumbaSVEngine, plan, (2, 2, 2), 3, 300, 11, request)
     assert numpy_counts == numba_counts
 
 
@@ -176,10 +179,10 @@ def test_keyed_dispatch_matches_numpy_on_the_dynamic_path():
     program.add(ops.X, 1, condition=(0, 1))
     program.add(ops.RZ(0.7), 1)
     program.measure(1, 1)
-    plan, facts, request = _plan_and_request(program)
+    plan, request = _plan_and_request(program)
 
-    numpy_counts = _counts(NumpySVEngine, plan, facts, (2, 2), 2, 20, 13, request)
-    numba_counts = _counts(NumbaSVEngine, plan, facts, (2, 2), 2, 20, 13, request)
+    numpy_counts = _counts(NumpySVEngine, plan, (2, 2), 2, 20, 13, request)
+    numba_counts = _counts(NumbaSVEngine, plan, (2, 2), 2, 20, 13, request)
     assert numpy_counts == numba_counts
 
 

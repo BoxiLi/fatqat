@@ -1124,7 +1124,6 @@ class Simulator:
         )
         raw = self._engine.execute(
             plan=plan,
-            deferred_measurements=execution.facts.deferred_measurements,
             context=context,
             policy=prepared.state_policy,
             initial_state=execution.initial_state,
@@ -1197,7 +1196,6 @@ class Simulator:
             assert isinstance(plan, tuple)
             raw = self._engine.execute(
                 plan=plan,
-                deferred_measurements=execution.facts.deferred_measurements,
                 context=context,
                 policy=sample.policy,
                 initial_state=initial,
@@ -1238,7 +1236,6 @@ class Simulator:
         try:
             raw = self._engine.execute(
                 plan=plan,
-                deferred_measurements=prepared.facts.deferred_measurements,
                 context=prepared.context,
                 initial_state=prepared.initial_state,
                 policy=policy,
@@ -1268,7 +1265,6 @@ class Simulator:
         return self._engine.resolve_execution_policy(
             plan,
             prepared.simulation,
-            facts=prepared.facts,
             counts_requested=request.counts,
             state_requested=getattr(request, self._state_field),
             shots=shots,
@@ -1615,12 +1611,6 @@ class Simulator:
     ) -> _PlanFacts:
         """Exhaustively derive runtime-independent matrix execution semantics."""
         quantum = self._engine.capabilities.quantum
-        execution_shape = "operator" if quantum.is_operator else "single_pass"
-        state_nonunitary_uses_trajectories = (
-            not quantum.is_operator and quantum.nonunitary_is_stochastic
-        )
-        measured_indices: set[int] = set()
-        deferred_measurements: list[tuple[int, int]] = []
         written_clbits: set[int] = set()
         stochastic_final_state = False
         has_measurement = False
@@ -1628,15 +1618,9 @@ class Simulator:
         has_channel = False
         has_condition = False
 
-        def require_per_shot() -> None:
-            nonlocal execution_shape
-            if not quantum.is_operator:
-                execution_shape = "per_shot"
-
         for step in plan:
             if getattr(step, "condition", None) is not None:
                 has_condition = True
-                require_per_shot()
 
             if claimed_step_types and isinstance(step, claimed_step_types):
                 continue
@@ -1644,47 +1628,23 @@ class Simulator:
             if isinstance(step, MeasurementStep):
                 has_measurement = True
                 stochastic_final_state = True
-                if measured_indices.intersection(step.measured_indices):
-                    require_per_shot()
-                measured_indices.update(step.measured_indices)
                 written_clbits.update(step.classical_indices)
-                deferred_measurements.extend(
-                    zip(step.measured_indices, step.classical_indices)
-                )
                 continue
 
             if isinstance(step, (ApplyMatrixStep, planning._MatrixRecipe)):
-                # A deferred (sweep) recipe has the same structural footprint
-                # as the matrix it will materialize into.
-                target_indices = step.target_indices
-            elif isinstance(step, ResetStep):
+                continue
+            if isinstance(step, ResetStep):
                 has_reset = True
-                target_indices = step.reset_indices
-                if state_nonunitary_uses_trajectories:
-                    require_per_shot()
-                if quantum.nonunitary_is_stochastic:
-                    stochastic_final_state = True
+                stochastic_final_state |= quantum.nonunitary_is_stochastic
             elif isinstance(step, ApplyChannelStep):
                 has_channel = True
-                target_indices = step.target_indices
-                if state_nonunitary_uses_trajectories:
-                    require_per_shot()
-                if quantum.nonunitary_is_stochastic:
-                    stochastic_final_state = True
+                stochastic_final_state |= quantum.nonunitary_is_stochastic
             else:
                 raise TypeError(
                     f"unknown resolved execution step {type(step).__name__}"
                 )
 
-            if measured_indices.intersection(target_indices):
-                require_per_shot()
-
-        if execution_shape != "single_pass":
-            deferred_measurements = []
-
         return _PlanFacts(
-            execution_shape=execution_shape,
-            deferred_measurements=tuple(deferred_measurements),
             written_clbits=frozenset(written_clbits),
             stochastic_final_state=stochastic_final_state,
             has_measurement=has_measurement,

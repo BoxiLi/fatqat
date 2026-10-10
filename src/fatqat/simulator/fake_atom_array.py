@@ -430,8 +430,6 @@ class AtomArraySimulator(Simulator):
         has_loss = any(isinstance(step, LossStep) for step in plan)
         return replace(
             common,
-            execution_shape="per_shot",
-            deferred_measurements=(),
             stochastic_final_state=common.stochastic_final_state or has_loss,
         )
 

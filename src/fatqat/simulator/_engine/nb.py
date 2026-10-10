@@ -1784,14 +1784,12 @@ class NumbaSVEngine(NumpySVEngine):
         *,
         system_dims: tuple[int, ...],
         n_clbits: int,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
     ):
         base = super().materialize_execution(
             plan,
             system_dims=system_dims,
             n_clbits=n_clbits,
-            deferred_measurements=deferred_measurements,
             policy=policy,
         )
         execution_plan = base[0]
@@ -2366,7 +2364,6 @@ class NumbaDMEngine(NumpyDMEngine):
         *,
         system_dims: tuple[int, ...],
         n_clbits: int,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
     ):
         """Apply the optional gate/channel rewrite exactly once."""
@@ -2392,7 +2389,7 @@ class NumbaDMEngine(NumpyDMEngine):
         }
         return (
             execution_plan,
-            deferred_measurements,
+            policy.deferred_measurements,
             tuple(self._sandwich_plans.items()),
         )
 
@@ -2862,11 +2859,9 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
         *,
         system_dims: tuple[int, ...],
         n_clbits: int,
-        deferred_measurements: tuple[tuple[int, int], ...],
         policy: ExecutionPolicy,
     ):
         """Resolve, optionally fuse, and pack the operator plan once."""
-        del deferred_measurements
         self.configure_system(system_dims, n_clbits)
         execution_plan = self._operator_execution_plan(plan, policy)
         self._retain_step_caches(execution_plan)
@@ -2898,7 +2893,7 @@ class _NumbaOperatorRunMixin(_NumpyOperatorEngine):
     ) -> RawResult[np.ndarray]:
         """Execute one already-packed operator payload without replanning."""
         assert policy.shot_strategy == "none"
-        assert policy.execution_shape == "operator"
+        assert policy.execution_path == "operator"
         self.configure_system(context.system_dims, context.n_clbits)
         packed, scratch_rows, n_columns, n_chunks = payload
         with self._execution_scope(policy):

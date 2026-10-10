@@ -122,15 +122,10 @@ class RawResult(Generic[StateDataT]):
     state: StateDataT | None = None
 
 
-ExecutionShape = Literal["operator", "single_pass", "per_shot"]
-
-
 @dataclass(frozen=True, slots=True)
 class _PlanFacts:
     """Runtime-independent semantic facts derived from one lowered plan."""
 
-    execution_shape: ExecutionShape
-    deferred_measurements: tuple[tuple[int, int], ...]
     written_clbits: frozenset[int]
     stochastic_final_state: bool
     has_measurement: bool

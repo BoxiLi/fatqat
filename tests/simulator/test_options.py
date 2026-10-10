@@ -9,7 +9,6 @@ from fatqat.simulator._execution_contract import (
     _SimulationConfig,
     _KernelCapabilities,
     _TrajectoryCapabilities,
-    _PlanFacts,
     _InitialEvolutionState,
     _InitialClassicalState,
 )
@@ -188,23 +187,10 @@ def test_engine_quantum_support_controls_early_validation(monkeypatch, operation
         backend.run(program)
 
 
-def _facts(execution_shape):
-    return _PlanFacts(
-        execution_shape=execution_shape,
-        deferred_measurements=(),
-        written_clbits=frozenset(),
-        stochastic_final_state=False,
-        has_measurement=False,
-        has_reset=False,
-        has_channel=False,
-        has_condition=False,
-    )
-
-
 @pytest.mark.parametrize(
     (
         "simulation",
-        "facts",
+        "execution_path",
         "counts_requested",
         "state_requested",
         "capabilities",
@@ -216,7 +202,7 @@ def _facts(execution_shape):
     [
         pytest.param(
             _SimulationConfig(),
-            _facts("operator"),
+            "operator",
             False,
             True,
             _KernelCapabilities(True, 8, False),
@@ -228,7 +214,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(),
-            _facts("operator"),
+            "operator",
             False,
             True,
             _KernelCapabilities(False, 1, False),
@@ -240,7 +226,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -252,7 +238,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(max_workers=4),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -264,7 +250,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(max_workers=4),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -280,7 +266,7 @@ def _facts(execution_shape):
                 kernel_parallelism="auto",
                 max_workers=4,
             ),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -296,7 +282,7 @@ def _facts(execution_shape):
                 kernel_parallelism="threads",
                 max_workers=99,
             ),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -308,7 +294,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(shot_parallelism="threads", kernel_parallelism="serial"),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -324,7 +310,7 @@ def _facts(execution_shape):
                 kernel_parallelism="serial",
                 fusion=True,
             ),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, True),
@@ -336,7 +322,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(shot_parallelism="serial", kernel_parallelism="serial"),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -348,7 +334,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(max_workers=1),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -360,7 +346,7 @@ def _facts(execution_shape):
         ),
         pytest.param(
             _SimulationConfig(shot_parallelism="serial", kernel_parallelism="serial"),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -374,7 +360,7 @@ def _facts(execution_shape):
 )
 def test_execution_policy_decision_table(
     simulation,
-    facts,
+    execution_path,
     counts_requested,
     state_requested,
     capabilities,
@@ -391,7 +377,7 @@ def test_execution_policy_decision_table(
     )
     policy = _resolve_execution_policy(
         simulation,
-        facts=facts,
+        execution_path=execution_path,
         counts_requested=counts_requested,
         state_requested=state_requested,
         capabilities=capabilities,
@@ -431,7 +417,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
     )
     policy = _resolve_execution_policy(
         _SimulationConfig(shot_parallelism="processes", kernel_parallelism="serial"),
-        facts=_facts("per_shot"),
+        execution_path="per_shot",
         counts_requested=True,
         state_requested=False,
         capabilities=_KernelCapabilities(True, 8, True),
@@ -447,7 +433,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
 @pytest.mark.parametrize(
     (
         "simulation",
-        "facts",
+        "execution_path",
         "counts_requested",
         "state_requested",
         "capabilities",
@@ -459,7 +445,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
     [
         pytest.param(
             _SimulationConfig(shot_parallelism="threads", kernel_parallelism="serial"),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -471,7 +457,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         ),
         pytest.param(
             _SimulationConfig(shot_parallelism="serial", kernel_parallelism="threads"),
-            _facts("single_pass"),
+            "single_pass",
             False,
             True,
             _KernelCapabilities(True, 1, False),
@@ -483,7 +469,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         ),
         pytest.param(
             _SimulationConfig(shot_parallelism="threads", kernel_parallelism="serial"),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 1, False),
@@ -497,7 +483,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
             _SimulationConfig(
                 shot_parallelism="processes", kernel_parallelism="serial"
             ),
-            _facts("single_pass"),
+            "single_pass",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -509,7 +495,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         ),
         pytest.param(
             _SimulationConfig(shot_parallelism="threads", kernel_parallelism="serial"),
-            _facts("per_shot"),
+            "per_shot",
             True,
             False,
             _KernelCapabilities(True, 8, False),
@@ -523,7 +509,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
             _SimulationConfig(
                 shot_parallelism="processes", kernel_parallelism="serial"
             ),
-            _facts("per_shot"),
+            "per_shot",
             True,
             True,
             _KernelCapabilities(True, 8, False),
@@ -537,7 +523,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
 )
 def test_execution_policy_rejects_inapplicable_requests(
     simulation,
-    facts,
+    execution_path,
     counts_requested,
     state_requested,
     capabilities,
@@ -549,7 +535,7 @@ def test_execution_policy_rejects_inapplicable_requests(
     with pytest.raises(BackendValidationError, match=match):
         _resolve_execution_policy(
             simulation,
-            facts=facts,
+            execution_path=execution_path,
             counts_requested=counts_requested,
             state_requested=state_requested,
             capabilities=capabilities,
@@ -563,14 +549,14 @@ def test_execution_policy_rejects_inapplicable_requests(
 
 def test_process_policy_projections():
     local = _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="serial",
         kernel_strategy="adaptive",
         worker_limit=None,
         fusion=False,
     )
     process = _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="processes",
         kernel_strategy="serial",
         worker_limit=4,
@@ -579,14 +565,14 @@ def test_process_policy_projections():
 
     assert _materialization_policy(local) == local
     assert _materialization_policy(process) == _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,
         fusion=True,
     )
     assert _process_child_policy(process) == _ExecutionPolicy(
-        execution_shape="per_shot",
+        execution_path="per_shot",
         shot_strategy="serial",
         kernel_strategy="serial",
         worker_limit=1,

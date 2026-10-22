@@ -1,7 +1,3 @@
----
-description: Follow your curiosity from a GitHub issue to a change you understand, with AI as a partner in learning.
----
-
 # How to work on an issue
 
 An interesting issue can be a doorway into a codebase. You do not need to

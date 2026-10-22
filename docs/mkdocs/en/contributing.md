@@ -1,7 +1,3 @@
----
-description: Ask useful questions, review designs, and improve FatQat through real experience in the AI era.
----
-
 # Contributing in the AI era
 
 ## If AI can write the code, where can I make the biggest difference?

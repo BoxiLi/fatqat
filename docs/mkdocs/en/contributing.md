@@ -2,7 +2,7 @@
 description: Ask useful questions, review designs, and improve FatQat through real experience in the AI era.
 ---
 
-# How to contribute
+# Contributing in the AI era
 
 ## If AI can write the code, where can I make the biggest difference?
 
@@ -177,6 +177,9 @@ replacement. Browse the [open pull requests](https://github.com/spaceqat/fatqat/
 to find a conversation you can help with.
 
 ## Ready to make a change?
+
+For a guided path through investigating an issue, choosing a design, and
+opening a PR, read [How to work on an issue](contributing/issue-to-pull-request.md).
 
 Keep it focused, verify the relevant behavior, and explain the reasoning.
 Use AI to assist investigation and implementation while taking responsibility

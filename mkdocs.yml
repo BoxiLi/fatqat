@@ -224,4 +224,6 @@ nav:
       - Errors and stability:
           - Exceptions: api/exceptions.md
           - Experimental APIs: api/experimental.md
-  - How to contribute: contributing.md
+  - How to contribute:
+      - Contributing in the AI era: contributing.md
+      - How to work on an issue: contributing/issue-to-pull-request.md

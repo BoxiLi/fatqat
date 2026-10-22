@@ -35,7 +35,7 @@ someone else to follow, and credit the papers or other work you build on.
 have a new use case or an example you would like to share,
 [open an issue](https://github.com/spaceqat/fatqat/issues) and tell us about
 it. We can discuss how it might fit into the examples or
-[tutorial collection](tutorials/index.md).
+[tutorial collection](../tutorials/index.md).
 
 ## Using FatQat through an agent? Follow the friction. { #working-through-an-agent }
 
@@ -175,7 +175,7 @@ to find a conversation you can help with.
 ## Ready to make a change?
 
 For a guided path through investigating an issue, choosing a design, and
-opening a PR, read [How to work on an issue](contributing/issue-to-pull-request.md).
+opening a PR, read [How to work on an issue](how-to-work-on-an-issue.md).
 
 Keep it focused, verify the relevant behavior, and explain the reasoning.
 Use AI to assist investigation and implementation while taking responsibility

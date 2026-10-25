@@ -415,20 +415,22 @@ class PulseImplementationMap:
         tuple again replaces its previous rule.
 
         Args:
-            op: Operation instance or class to implement.
+            op: Operation instance or class to implement, with fixed or
+                variable arity.
             implementation: A ``PulseDefinition`` or a callable that returns
                 one. When ``device_operands`` is omitted, the callable must
                 explicitly accept that keyword.
             device_operands: Ordered physical labels for a device-specific
-                rule. The tuple length must match the operation's arity. Omit
-                this argument for a rule that applies to every tuple.
+                rule. The tuple length must match ``num_subsystems`` when it
+                is not ``None``. Variable-arity operations match the exact
+                registered tuple. Omit this argument to apply a rule to every
+                tuple.
 
         Raises:
             TypeError: If ``op`` is neither an ``Operation`` instance nor
-                subclass; if its operation class has variable arity or is a
-                ``PulseOperation``; if explicit operands are invalid; or if
-                ``implementation`` is neither a ``PulseDefinition`` nor
-                callable.
+                subclass; if it is a ``PulseOperation``; if explicit operands
+                are invalid; or if ``implementation`` is neither a
+                ``PulseDefinition`` nor callable.
             ValueError: If ``device_operands`` length does not match the
                 operation's arity; if operands are omitted for a fixed
                 definition or callable that does not explicitly accept

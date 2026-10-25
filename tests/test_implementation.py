@@ -3,7 +3,9 @@
 import numpy as np
 import pytest
 
+import fatqat as fq
 import fatqat.operations as ops
+from fatqat.simulator import Simulator
 from fatqat._pulse_values import ControlChannel, PulseControl
 from fatqat._backends.steps import ApplyMatrixStep
 from fatqat.implementation import (
@@ -228,43 +230,67 @@ def test_add_rejects_non_operation_key():
         m.add("not an operation", rule)
 
 
-def _callable_rule(op):
-    return np.eye(2, dtype=complex)
-
-
-@pytest.mark.parametrize(
-    "rule",
-    [
-        FixedMatrix(np.eye(2, dtype=complex)),
-        np.eye(2, dtype=complex),
-        _callable_rule,
-    ],
-    ids=["fixed_matrix", "ndarray", "callable"],
-)
-def test_add_rejects_variable_arity_operation(rule):
+def test_add_accepts_fixed_matrix_for_variable_arity_operation():
     class VariableGate(ops.Operation):
         name = "VariableGate"
         num_subsystems = None
 
     m = MatrixImplementationMap()
-    with pytest.raises(TypeError, match="variable arity"):
-        m.add(VariableGate, rule)
+    m.add(VariableGate, np.eye(2), device_operands=(0,))
+    resolved = m.implementation_for(VariableGate, device_operands=(0,))
+    target = QuantumRegister(1)[0]
+    np.testing.assert_array_equal(
+        resolved(VariableGate(), targets=(target,)), np.eye(2)
+    )
 
 
-def test_add_rejects_direct_control_operations():
+@pytest.mark.parametrize("device_operands", [None, ()])
+def test_add_rejects_direct_control_operations(device_operands):
     m = MatrixImplementationMap()
     with pytest.raises(TypeError, match="direct-control"):
-        m.add(_direct_pulse(), np.eye(2, dtype=complex))
+        m.add(
+            _direct_pulse(), np.eye(2, dtype=complex), device_operands=device_operands
+        )
 
 
-def test_add_checks_variable_arity_before_wrapping_an_invalid_rule():
+def test_variable_arity_registration_still_rejects_an_invalid_rule():
     class VariableGate(ops.Operation):
         name = "VariableGate"
         num_subsystems = None
 
     m = MatrixImplementationMap()
-    with pytest.raises(TypeError, match="implementation maps only support"):
+    with pytest.raises(TypeError, match="rule for VariableGate must be"):
         m.add(VariableGate, "not an implementation")
+
+
+@pytest.mark.parametrize("runtime", ["numpy", "numba"])
+@pytest.mark.parametrize("device_specific", [False, True])
+def test_variable_arity_matrix_executes_at_different_widths(runtime, device_specific):
+    class FlipAll(ops.Operation):
+        name = "FlipAll"
+        num_subsystems = None
+
+    def flip_all(operation, *, targets):
+        del operation
+        dimension = int(np.prod([target.register.dim for target in targets]))
+        return np.fliplr(np.eye(dimension, dtype=complex))
+
+    implementations = MatrixImplementationMap()
+    if device_specific:
+        for targets in [(2,), (2, 0)]:
+            implementations.add(FlipAll, flip_all, device_operands=targets)
+        assert (
+            implementations.implementation_for(FlipAll, device_operands=(0, 2)) is None
+        )
+    else:
+        implementations.add(FlipAll, flip_all)
+    simulator = Simulator(runtime=runtime, implementation_map=implementations)
+    for targets, expected in [((2,), "001"), ((2, 0), "101")]:
+        program = fq.Program(3, 3)
+        program.add(FlipAll(), targets)
+        for index in range(3):
+            program.measure(index, index)
+        assert simulator.run(program, shots=4).result().get_counts() == {expected: 4}
 
 
 # --- remove -------------------------------------------------------------

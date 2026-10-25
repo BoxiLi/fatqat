@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -12,8 +14,6 @@ import numpy as np
 
 from ..._execution_contract import (
     RawResult,
-    _InitialClassicalState as InitialClassicalState,
-    _InitialEvolutionState as InitialEvolutionState,
     _SimulationConfig as SimulationConfig,
     _EngineCapabilities,
     _ExecutionContext as ExecutionContext,
@@ -104,7 +104,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         *,
         context: ExecutionContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> ExecutionPolicy:
         """Validate the request and choose its workflow and scheduling.
 
@@ -124,7 +124,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         system_dims: Sequence[int],
         n_clbits: int = 0,
         *,
-        initial_state: InitialEvolutionState[QuantumDataT] | None = None,
+        initial_state: EvolutionState[QuantumDataT] | None = None,
     ) -> None:
         """Initialize owned quantum and classical storage from validated input."""
 
@@ -203,7 +203,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         *,
         context: ExecutionContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
         """Plan, materialize, and execute one requested evolution."""
         policy = self._plan_execution(
@@ -221,7 +221,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         *,
         context: ExecutionContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> tuple[float, ...]:
         """Evolve and contract Pauli sums within the selected runtime policy.
 
@@ -245,7 +245,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         plan: tuple[ResolvedStep, ...],
         context: ExecutionContext,
         policy: ExecutionPolicy,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
         """Materialize and dispatch an engine-selected execution policy."""
         if policy.shot_strategy in ("none", "serial", "threads"):
@@ -290,7 +290,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         payload: Any,
         policy: ExecutionPolicy,
         *,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
         """Execute a materialized state or operator plan through Python."""
         assert policy.shot_strategy != "processes"
@@ -346,7 +346,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         seed_batch: list[np.random.SeedSequence],
         policy: ExecutionPolicy,
         *,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> list[tuple[int, ...]]:
         """Non-dispatching worker entry for one ordered batch of shots."""
         assert policy.shot_strategy == "serial"
@@ -359,7 +359,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         self,
         payload: _PythonExecution,
         context: ExecutionContext,
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
         *,
         state_requested: bool,
     ) -> np.ndarray | None:
@@ -382,12 +382,12 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         payload: _PythonExecution,
         context: ExecutionContext,
         seed_sequences: Sequence[np.random.SeedSequence],
-        initial_state: InitialEvolutionState[QuantumDataT],
+        initial_state: EvolutionState[QuantumDataT],
     ) -> list[tuple[int, ...]]:
         """Initialize each trajectory within the caller's active runtime scope.
 
         Local and process entries share this lifecycle. The workflow borrows the
-        current evolution container; the engine retains its lifetime and caches.
+        current evolution container and may replace it; the engine adopts the result.
         """
         snapshots = []
         for seed_sequence in seed_sequences:
@@ -397,13 +397,15 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                 initial_state=initial_state,
             )
             assert self._evolution_state is not None
+            self._evolution_state = _run_one_shot(
+                payload,
+                self._evolution_state,
+                context,
+                np.random.default_rng(seed_sequence),
+            )
+            clbits = self._evolution_state.classical.clbits
             snapshots.append(
-                _run_one_shot(
-                    payload,
-                    self._evolution_state,
-                    context,
-                    np.random.default_rng(seed_sequence),
-                )
+                tuple(clbits) if clbits is not None else (0,) * context.n_clbits
             )
         return snapshots
 
@@ -440,24 +442,16 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         """
         return self.state
 
-    def _export_evolution_state(self) -> InitialEvolutionState[QuantumDataT]:
+    def _export_evolution_state(self) -> EvolutionState[QuantumDataT]:
         """Export completed local evolution as reusable initialization.
 
         Quantum data is borrowed in runtime-native storage. Classical values
-        are frozen so later execution cannot change the saved initialization.
+        are copied so later execution cannot change the saved initialization.
         Each consumer initializes its own mutable state before evolving it.
         """
         if self._evolution_state is None:
             raise RuntimeError("MatrixEngine state has not been initialized.")
-        classical = self._evolution_state.classical
-        return InitialEvolutionState(
+        return EvolutionState(
             quantum=self.export_state(),
-            classical=InitialClassicalState(
-                clbits=None if classical.clbits is None else tuple(classical.clbits),
-                occupied=(
-                    None
-                    if classical.occupied is None
-                    else frozenset(classical.occupied)
-                ),
-            ),
+            classical=deepcopy(self._evolution_state.classical),
         )

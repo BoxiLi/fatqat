@@ -10,13 +10,12 @@ from fatqat.simulator._engine._execution_policy import _select_execution_path
 
 import fatqat as fq
 import fatqat.operations as ops
-from fatqat.simulator import Simulator
+from fatqat.simulator import EvolutionState, Simulator
 from fatqat._backends.steps import ApplyChannelStep, ApplyMatrixStep, BuiltinKernelKey
 from fatqat.implementation import default_matrix_implementation_map
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
     _ExecutionContext,
-    _InitialEvolutionState,
 )
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
@@ -137,7 +136,7 @@ def _counts(engine_cls, plan, dims, n_clbits, shots, seed, request):
     execution_path = _select_execution_path(
         plan,
         quantum_capabilities=simulator.capabilities.quantum,
-        initial_state=_InitialEvolutionState(),
+        initial_state=EvolutionState(),
     )
     policy = _ExecutionPolicy(
         execution_path=execution_path,
@@ -156,7 +155,7 @@ def _counts(engine_cls, plan, dims, n_clbits, shots, seed, request):
         context,
         payload,
         policy,
-        initial_state=_InitialEvolutionState(),
+        initial_state=EvolutionState(),
     )
     return list(zip(raw.outcome_keys.tolist(), raw.outcome_counts.tolist()))
 

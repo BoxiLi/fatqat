@@ -51,6 +51,7 @@ from .._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
     BuiltinKernelKey,
+    CustomOperationStep,
     LossStep,
     MeasurementStep,
     ResetStep,
@@ -333,11 +334,11 @@ def _lower_gate(
     *,
     param_order: tuple[Parameter, ...] | None = None,
 ) -> list[ResolvedStep | _MatrixRecipe]:
-    """Lower one ordinary-gate operation and its attached channel noise.
+    """Lower one registered operation and its attached channel noise.
 
     Structural resolution (device operands, engine indices, condition, rule
     selection, kernel identity, target dimensions) reads only the operation's
-    type and targets, never its field values. A gate whose fields hold
+    type and targets, never its field values. An ordinary gate whose fields hold
     `Parameter`s therefore lowers here without a concrete matrix: when
     ``param_order`` supplies the sweep's θ order it becomes a
     `_MatrixRecipe`, deferring the rule call and shape validation to
@@ -356,47 +357,57 @@ def _lower_gate(
     condition = _resolve_condition(step.condition, classical_allocation)
 
     rule = _select_implementation(step.operation, device_operands, impl_map)
-    target_dims = tuple(engine_allocation.system_dims[i] for i in engine_indices)
-    param_slots = _parameter_field_slots(step.operation, param_order)
     steps: list[ResolvedStep | _MatrixRecipe] = []
-    if param_slots is not None:
+    if isinstance(step.operation, ops.CustomOperation):
         steps.append(
-            _MatrixRecipe(
-                rule=rule,
-                operation_template=step.operation,
-                param_slots=param_slots,
-                targets=step.targets,
+            CustomOperationStep(
+                operation=step.operation,
+                implementation=rule,
                 target_indices=engine_indices,
-                target_dims=target_dims,
                 condition=condition,
-                kernel_key=rule._kernel_key(step.operation, targets=step.targets),
             )
         )
     else:
-        try:
-            matrix = rule(step.operation, targets=step.targets)
-        except Exception as exc:
-            raise MatrixImplementationError(
-                f"implementation for {type(step.operation).__name__} raised: {exc}"
-            ) from exc
-
-        expected = prod(target_dims)
-        if matrix.shape != (expected, expected):
-            raise BackendValidationError(
-                f"{type(step.operation).__name__} resolved to a "
-                f"{matrix.shape} matrix, incompatible with target "
-                f"dimensions {target_dims} (expected "
-                f"{(expected, expected)})"
+        target_dims = tuple(engine_allocation.system_dims[i] for i in engine_indices)
+        param_slots = _parameter_field_slots(step.operation, param_order)
+        if param_slots is not None:
+            steps.append(
+                _MatrixRecipe(
+                    rule=rule,
+                    operation_template=step.operation,
+                    param_slots=param_slots,
+                    targets=step.targets,
+                    target_indices=engine_indices,
+                    target_dims=target_dims,
+                    condition=condition,
+                    kernel_key=rule._kernel_key(step.operation, targets=step.targets),
+                )
             )
+        else:
+            try:
+                matrix = rule(step.operation, targets=step.targets)
+            except Exception as exc:
+                raise MatrixImplementationError(
+                    f"implementation for {type(step.operation).__name__} raised: {exc}"
+                ) from exc
 
-        steps.append(
-            ApplyMatrixStep(
-                matrix=matrix,
-                target_indices=engine_indices,
-                condition=condition,
-                kernel_key=rule._kernel_key(step.operation, targets=step.targets),
+            expected = prod(target_dims)
+            if matrix.shape != (expected, expected):
+                raise BackendValidationError(
+                    f"{type(step.operation).__name__} resolved to a "
+                    f"{matrix.shape} matrix, incompatible with target "
+                    f"dimensions {target_dims} (expected "
+                    f"{(expected, expected)})"
+                )
+
+            steps.append(
+                ApplyMatrixStep(
+                    matrix=matrix,
+                    target_indices=engine_indices,
+                    condition=condition,
+                    kernel_key=rule._kernel_key(step.operation, targets=step.targets),
+                )
             )
-        )
     steps.extend(
         _lower_channels(
             type(step.operation),

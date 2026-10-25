@@ -1,9 +1,10 @@
-"""Custom matrix rules for gate-level simulators.
+"""Matrix rules and joint custom operations for gate-level simulators.
 
 Use `default_matrix_implementation_map` to copy FATQAT's built-in gate rules,
 or create an empty `MatrixImplementationMap` for a backend that supports only
 the rules you add. Rules may be fixed matrices, callables, or configured
-`MatrixImplementation` objects.
+`MatrixImplementation` objects. CustomOperation descriptions use
+`CustomOperationImplementation` in the same map.
 """
 
 from __future__ import annotations
@@ -16,9 +17,11 @@ from .base import (
     MatrixImplementationMap,
     MatrixImplementation,
 )
+from .custom import CustomOperationImplementation
 from .registry import default_matrix_implementation_map
 
 __all__ = [
+    "CustomOperationImplementation",
     "MatrixImplementation",
     "FixedMatrix",
     "MatrixImplementationMap",

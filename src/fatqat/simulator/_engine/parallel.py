@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .state import EvolutionState
 from .._execution_contract import (
     _ExecutionContext as ExecutionContext,
-    _InitialEvolutionState as InitialEvolutionState,
 )
 from ..._backends.steps import ResolvedStep
 from ._execution_policy import (
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
             seed_batch: list[np.random.SeedSequence],
             policy: ExecutionPolicy,
             *,
-            initial_state: InitialEvolutionState,
+            initial_state: EvolutionState,
         ) -> list[tuple[int, ...]]: ...
 
 
@@ -77,7 +77,7 @@ def _run_shot_batch(
     plan: tuple[ResolvedStep, ...],
     seed_batch: list[np.random.SeedSequence],
     child_policy: ExecutionPolicy,
-    initial_state: InitialEvolutionState,
+    initial_state: EvolutionState,
 ) -> list[tuple[int, ...]]:
     engine = engine_factory()
     # Bind worker-local numerical resources once for the whole batch. No parent
@@ -107,7 +107,7 @@ def _run_shots_in_processes(
     context: ExecutionContext,
     plan: tuple[ResolvedStep, ...],
     policy: ExecutionPolicy,
-    initial_state: InitialEvolutionState,
+    initial_state: EvolutionState,
 ) -> list[tuple[int, ...]]:
     """Run shot batches in real child processes under a serial child policy."""
     assert policy.shot_strategy == "processes"

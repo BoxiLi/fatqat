@@ -11,10 +11,9 @@ from fatqat.simulator._execution_contract import (
     _ResultRequest,
     _SimulationConfig,
     _TrajectoryCapabilities,
-    _InitialEvolutionState,
 )
 from fatqat.errors import BackendValidationError
-from fatqat.simulator import Simulator
+from fatqat.simulator import EvolutionState, Simulator
 
 
 @pytest.mark.parametrize(
@@ -260,7 +259,7 @@ def test_numba_trajectory_workflow_selection(shots, first_step, expected_workflo
             seed=None,
         ),
         simulation_config=_SimulationConfig(max_workers=1),
-        initial_state=_InitialEvolutionState(),
+        initial_state=EvolutionState(),
     )
 
     assert policy.workflow == expected_workflow
@@ -288,7 +287,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
         simulation_config=_SimulationConfig(
             shot_parallelism="processes", kernel_parallelism="serial"
         ),
-        initial_state=_InitialEvolutionState(),
+        initial_state=EvolutionState(),
     )
 
     assert policy.worker_limit == 3

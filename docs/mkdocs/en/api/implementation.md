@@ -23,7 +23,7 @@ backend should support only rules you add.
 
 
 [`MatrixImplementationMap.add`][fatqat.implementation.MatrixImplementationMap.add] accepts an operation
-instance or class and one of three rule forms:
+instance or class and one of these matrix rule forms:
 
 **Matrix rule forms**
 
@@ -32,6 +32,10 @@ instance or class and one of three rule forms:
 | Two-dimensional NumPy array | One constant matrix | The array; FATQAT copies it, so later changes do not affect the rule |
 | Callable | A matrix that depends on operation parameters or target dimensions | `rule(op)` by default. If the callable accepts a `targets=` keyword or `**kwargs`, FATQAT calls `rule(op, targets=targets)`. |
 | [`MatrixImplementation`][fatqat.implementation.MatrixImplementation] | A configured or stateful rule object | Override `__call__(op, *, targets)`. |
+
+For operations that update quantum and classical state together, the same map
+accepts `CustomOperationImplementation` objects. See
+[Custom operations](simulators/custom-operations.md).
 
 `op` is the applied operation value, so it contains parameters such as a
 rotation angle. `targets` contains scalar program
@@ -68,6 +72,9 @@ register references. One operation family uses exactly one registration mode:
 
 Call [`remove`][fatqat.implementation.MatrixImplementationMap.remove] before
 switching a family between these modes.
+
+Both modes accept `num_subsystems=None`; device-specific tuples may then have
+different lengths. Otherwise, each tuple must match the declared target count.
 
 ## Validation timing
 

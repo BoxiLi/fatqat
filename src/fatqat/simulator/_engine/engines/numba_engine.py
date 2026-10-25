@@ -91,7 +91,6 @@ import numpy as np
 
 from ..._execution_contract import (
     RawResult,
-    _InitialEvolutionState as InitialEvolutionState,
     _SimulationConfig as SimulationConfig,
     _ExecutionContext as ExecutionContext,
     _KernelCapabilities,
@@ -150,6 +149,7 @@ from ..numerics.numba_kernels._channel import (
     _apply_channel_density_matrix,
 )
 from ..numerics.numpy_kernels._reset import _reset_density_matrix, _reset_superoperator
+from ..state import EvolutionState
 from .ndarray_engine import _NdarrayEngine
 from ..numerics.numpy_kernels._state import (
     _allocate_statevector,
@@ -197,7 +197,7 @@ class NumbaSVEngine(_NdarrayEngine):
         *,
         context: ExecutionContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
         """Choose compiled trajectories or Python sequencing with Numba kernels.
 
@@ -373,7 +373,7 @@ class NumbaSVEngine(_NdarrayEngine):
         payload: _PythonExecution | _NumbaTrajectoryExecution,
         policy: ExecutionPolicy,
         *,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         if policy.workflow == "python":
             return super().execute_in_process(
@@ -438,7 +438,7 @@ class NumbaDMEngine(_NdarrayEngine):
         *,
         context: ExecutionContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
         return _plan_python_execution(
             plan,
@@ -531,7 +531,7 @@ class _NumbaOperatorRunMixin:
         *,
         context: ExecutionContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
         """Choose compiled operator sequencing with serial or threaded kernels.
 
@@ -597,7 +597,7 @@ class _NumbaOperatorRunMixin:
         payload: _NumbaOperatorExecution,
         policy: ExecutionPolicy,
         *,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         """Execute one already-packed operator payload without replanning."""
         assert policy.workflow == "numba_operator"

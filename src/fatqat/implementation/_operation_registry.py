@@ -6,7 +6,7 @@ Kept private and generic over each family's own rule type: `MatrixImplementation
 rules; the pulse implementation map composes it for pulse rules. Neither
 family's rule wrapping, public documentation, or error wording lives here -
 only the mechanics that are identical regardless of what a rule returns:
-operation instance/class normalization, fixed-arity checking, ordered
+operation instance/class normalization, direct-control exclusion, ordered
 device-operand normalization, the mutually exclusive unconstrained-versus-
 device-specific storage policy, lookup, enumeration, removal, and independent
 copying.
@@ -40,21 +40,8 @@ def _resolve_operation_class(op: Operation | type[Operation]) -> type[Operation]
     raise TypeError(f"expected an Operation instance or subclass, got {op!r}")
 
 
-def _require_fixed_arity(op_cls: type[Operation]) -> None:
-    """Raise `TypeError` if `op_cls` has variable arity (`num_subsystems is None`).
-
-    This is a deliberate scope policy, not a technical limit: rules do receive
-    `targets` and could in principle size their result from `len(targets)`.
-    But a variable-arity operation has no single canonical arity to validate a
-    device-operand key or a rule's output shape against, so it stays out of
-    scope for every implementation-map family unless a concrete variadic need
-    appears.
-    """
-    if op_cls.num_subsystems is None:
-        raise TypeError(
-            f"{op_cls.__name__} has variable arity (num_subsystems is None); "
-            "implementation maps only support fixed-arity operations"
-        )
+def _reject_direct_control(op_cls: type[Operation]) -> None:
+    """Direct controls already define their behavior and cannot be registered."""
     if op_cls._is_direct_control:
         raise TypeError(
             f"{op_cls.__name__} is a direct-control operation and cannot have "
@@ -72,7 +59,7 @@ def _normalize_device_operands(device_operands: DeviceOperands) -> DeviceOperand
 def _require_device_operands_arity(
     op_cls: type[Operation], device_operands: DeviceOperands
 ) -> None:
-    """Raise `ValueError` if device operands do not match `op_cls` arity.
+    """Raise `ValueError` if device operands do not match a declared fixed arity.
 
     Only arity is checked here: the general registry does not know what a
     target key element means (an integer device label, a zone name, ...), so
@@ -80,7 +67,7 @@ def _require_device_operands_arity(
     the backend that constructs a device-specific map.
     """
     expected = op_cls.num_subsystems
-    if len(device_operands) != expected:
+    if expected is not None and len(device_operands) != expected:
         raise ValueError(
             f"{op_cls.__name__} expects {expected} device operand(s), "
             f"got {len(device_operands)}"
@@ -95,7 +82,7 @@ class _OperationRuleRegistry(Generic[T]):
     same two-mode policy `MatrixImplementationMap` has always documented.
 
     Additions receive a rule factory rather than an already-wrapped rule so
-    operation arity, registration mode, and device-operand arity are all
+    direct-control exclusion, registration mode, and device-operand arity are all
     validated before family-specific rule wrapping begins. The factory is
     invoked only after those registration checks pass.
     """
@@ -110,7 +97,7 @@ class _OperationRuleRegistry(Generic[T]):
         rule_factory: Callable[[type[Operation]], T],
     ) -> None:
         op_cls = _resolve_operation_class(op)
-        _require_fixed_arity(op_cls)
+        _reject_direct_control(op_cls)
         if op_cls in self._device_operand:
             raise ValueError(
                 f"{op_cls.__name__} already has device-specific implementations, "
@@ -127,7 +114,7 @@ class _OperationRuleRegistry(Generic[T]):
         rule_factory: Callable[[type[Operation]], T],
     ) -> None:
         op_cls = _resolve_operation_class(op)
-        _require_fixed_arity(op_cls)
+        _reject_direct_control(op_cls)
         if op_cls in self._unconstrained:
             raise ValueError(
                 f"{op_cls.__name__} already has an unconstrained rule "

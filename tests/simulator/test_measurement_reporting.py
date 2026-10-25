@@ -2,10 +2,10 @@
 
 import numpy as np
 
+from fatqat.simulator import EvolutionState
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
     _ExecutionContext,
-    _InitialEvolutionState,
 )
 from fatqat._backends.steps import ApplyMatrixStep, MeasurementStep
 from fatqat.implementation.matrices import shift_matrix
@@ -51,7 +51,7 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         policy=policy,
     )
     result = engine.execute_in_process(
-        context, payload, policy, initial_state=_InitialEvolutionState()
+        context, payload, policy, initial_state=EvolutionState()
     )
 
     # Feedforward receives the confused reported digit, so its X fires.

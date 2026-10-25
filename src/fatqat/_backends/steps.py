@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ..operations import Operation
+    from ..implementation.custom import CustomOperationImplementation
 
 
 class BuiltinKernelKey(enum.Enum):
@@ -279,8 +284,19 @@ class PutStep:
     condition: tuple[tuple[int, int], ...] | None = None
 
 
+@dataclass(frozen=True)
+class CustomOperationStep:
+    """A joint state implementation with resolved operands and feedforward guard."""
+
+    operation: Operation
+    implementation: CustomOperationImplementation
+    target_indices: tuple[int, ...]
+    condition: tuple[tuple[int, int], ...] | None = None
+
+
 ResolvedStep = (
-    ApplyMatrixStep
+    CustomOperationStep
+    | ApplyMatrixStep
     | ApplyChannelStep
     | LossStep
     | MeasurementStep

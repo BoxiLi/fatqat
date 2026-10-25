@@ -1,6 +1,6 @@
-"""Matrix rules and device-aware rule maps.
+"""Matrix and custom-operation implementations with device-aware rule maps.
 
-A rule receives an applied operation and its ordered program targets, then
+A matrix rule receives an applied operation and its ordered program targets, then
 returns the operation's local matrix. A map can register one rule for every
 device target or separate rules for specific ordered device labels.
 
@@ -16,7 +16,8 @@ from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
-from ..operations import Operation
+from ..operations import CustomOperation, Operation
+from .custom import CustomOperationImplementation
 from ..registers import RegisterRef
 from ._operation_registry import (
     DeviceOperands,
@@ -205,17 +206,16 @@ class _CallableMatrixImplementation(MatrixImplementation):
 
 def _wrap_rule(
     op_cls: type[Operation],
-    rule: "MatrixImplementation | Callable | np.ndarray",
-) -> MatrixImplementation:
-    """Normalize an `add()` implementation argument into a `MatrixImplementation`.
+    rule: "MatrixImplementation | CustomOperationImplementation | Callable | np.ndarray",
+) -> MatrixImplementation | CustomOperationImplementation:
+    """Normalize matrix rules or accept a custom operation's joint implementation.
 
     Accepts an already-built `MatrixImplementation` (returned as-is, e.g. a
     `FixedMatrix` or `_DimMatrix`), a plain `np.ndarray` (wrapped in
     `FixedMatrix`, which only requires it be square with side length >= 2,
     see `_validate_square_matrix`), or a bare `f(op)`/`f(op, targets)`
-    callable (wrapped). Every stored rule is a `MatrixImplementation`
-    instance, so `implementation_for()` always returns a uniform type regardless of how the
-    rule was registered.
+    callable (wrapped). These become MatrixImplementation instances. CustomOperation
+    classes instead require CustomOperationImplementation, retained unchanged.
 
     A callable is not arity-checked at registration: a rule that cannot be
     called in its detected `f(op)`/`f(op, targets)` shape raises the first
@@ -228,6 +228,12 @@ def _wrap_rule(
             object), checked explicitly here so the error names the
             operation and the bad value.
     """
+    if issubclass(op_cls, CustomOperation):
+        if not isinstance(rule, CustomOperationImplementation):
+            raise TypeError("CustomOperation requires a CustomOperationImplementation")
+        return rule
+    if isinstance(rule, CustomOperationImplementation):
+        raise TypeError("custom implementations require a CustomOperation class")
     if isinstance(rule, MatrixImplementation):
         return rule
     if isinstance(rule, np.ndarray):
@@ -241,48 +247,50 @@ def _wrap_rule(
 
 
 class MatrixImplementationMap:
-    """Map fixed-arity operation families to local matrix rules.
+    """Map operation classes to matrix rules or custom implementations.
 
     A new map is empty. Register either one uniform rule or one or more
     device-specific rules for an operation family; the two registration modes
-    cannot be mixed for the same operation.
+    cannot be mixed for the same operation. ``CustomOperation`` classes require
+    ``CustomOperationImplementation`` objects.
     """
 
     def __init__(self) -> None:
         """Create an empty implementation map."""
-        self._registry: _OperationRuleRegistry[MatrixImplementation] = (
-            _OperationRuleRegistry()
-        )
+        self._registry: _OperationRuleRegistry[
+            MatrixImplementation | CustomOperationImplementation
+        ] = _OperationRuleRegistry()
 
     def add(
         self,
         op: Operation | type[Operation],
-        implementation: "MatrixImplementation | Callable | np.ndarray",
+        implementation: "MatrixImplementation | CustomOperationImplementation | Callable | np.ndarray",
         *,
         device_operands: DeviceOperands | None = None,
     ) -> None:
-        """Add a uniform or device-specific matrix rule.
+        """Add a uniform or device-specific operation implementation.
 
         Matrix rows and columns follow program target order: `targets[0]` is
         the most-significant local factor and the last target changes fastest.
         For controlled operations, controls come before targets.
 
         Args:
-            op: Operation instance, such as `ops.X`, or a fixed-arity
-                `Operation` subclass. Instances and their classes select the
-                same operation family.
+            op: Operation instance or subclass, with fixed or variable arity.
+                Instances and their classes select the same operation family.
             implementation: A `MatrixImplementation`, a NumPy array, or a
                 callable. An array becomes a `FixedMatrix`. A callable is
                 called as `rule(op)` unless it accepts a `targets=` keyword or
                 `**kwargs`; in that case FATQAT calls it as
-                `rule(op, targets=targets)`.
+                `rule(op, targets=targets)`. A ``CustomOperation`` instead requires
+                a ``CustomOperationImplementation`` with an ``execute`` method.
             device_operands: Ordered, hashable device labels for one physical
-                target tuple. Its length must equal the operation arity. Omit
-                it to make the rule apply uniformly.
+                target tuple. Its length must equal ``num_subsystems`` when
+                that value is not ``None``. Variable-arity operations match
+                the exact registered tuple. Omit it to apply the rule uniformly.
 
         Raises:
             TypeError: If `op` is not an operation instance or subclass, the
-                operation has variable arity or is a direct-control operation,
+                operation is a direct-control operation,
                 `implementation` has an unsupported form, or a device label is
                 not hashable.
             ValueError: If an array is not square with side length at least
@@ -301,7 +309,8 @@ class MatrixImplementationMap:
             )
             return
         self._registry.add_unconstrained(
-            op, lambda op_cls: _wrap_rule(op_cls, implementation)
+            op,
+            lambda op_cls: _wrap_rule(op_cls, implementation),
         )
 
     def supports(
@@ -332,11 +341,12 @@ class MatrixImplementationMap:
         op: Operation | type[Operation],
         *,
         device_operands: DeviceOperands | None = None,
-    ) -> MatrixImplementation | None:
-        """Return the matrix implementation selected for an operation.
+    ) -> MatrixImplementation | CustomOperationImplementation | None:
+        """Return the implementation selected for an operation.
 
-        The return value is always a `MatrixImplementation`, including when an
-        array or callable was originally registered.
+        Matrix rules return a `MatrixImplementation`, including when an array or
+        callable was registered. Custom operations return their registered
+        `CustomOperationImplementation`.
 
         Without `device_operands`, only a uniform rule is returned; a family
         that has only device-specific rules returns `None`. With a tuple,

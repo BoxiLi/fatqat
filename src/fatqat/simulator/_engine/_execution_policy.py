@@ -11,17 +11,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from .state import EvolutionState
+
 from .._execution_contract import (
     _SimulationConfig as SimulationConfig,
     _ExecutionContext as ExecutionContext,
     _EngineCapabilities as EngineCapabilities,
     _QuantumCapabilities as QuantumCapabilities,
-    _InitialEvolutionState as InitialEvolutionState,
     _KernelCapabilities as KernelCapabilities,
 )
 from ...errors import BackendValidationError
 from ..._backends.steps import (
     ApplyChannelStep,
+    CustomOperationStep,
     LossStep,
     MeasurementStep,
     PutStep,
@@ -53,7 +55,7 @@ def _select_execution_path(
     plan: Sequence[ResolvedStep],
     *,
     quantum_capabilities: QuantumCapabilities,
-    initial_state: InitialEvolutionState,
+    initial_state: EvolutionState,
 ) -> Literal["operator", "single_pass", "per_shot"]:
     """Classify the required evolution shape from plan and engine semantics."""
     if quantum_capabilities.is_operator:
@@ -64,7 +66,7 @@ def _select_execution_path(
     measured: set[int] = set()
     for step in plan:
         if getattr(step, "condition", None) is not None or isinstance(
-            step, (PutStep, LossStep)
+            step, (PutStep, LossStep, CustomOperationStep)
         ):
             return "per_shot"
         if isinstance(step, MeasurementStep):
@@ -182,7 +184,7 @@ def _plan_python_execution(
     *,
     context: ExecutionContext,
     simulation_config: SimulationConfig,
-    initial_state: InitialEvolutionState,
+    initial_state: EvolutionState,
     capabilities: EngineCapabilities,
 ) -> _ExecutionPolicy:
     """Classify and schedule execution after an engine selects Python sequencing.

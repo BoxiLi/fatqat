@@ -21,10 +21,10 @@ from fatqat.noise import (
     default_channel_implementation_map,
 )
 from fatqat.simulator._engine.engines.numpy_engine import NumpySVEngine
+from fatqat.simulator import EvolutionState
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
     _ExecutionContext,
-    _InitialEvolutionState,
 )
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
@@ -593,7 +593,7 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
         execution_path = _select_execution_path(
             plan,
             quantum_capabilities=simulator.capabilities.quantum,
-            initial_state=_InitialEvolutionState(quantum=start),
+            initial_state=EvolutionState(quantum=start),
         )
         policy = _ExecutionPolicy(
             execution_path=execution_path,
@@ -613,7 +613,7 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
             context,
             payload,
             policy,
-            initial_state=_InitialEvolutionState(quantum=start),
+            initial_state=EvolutionState(quantum=start),
         )
         assert raw.state is None
         assert np.array_equal(start, untouched)

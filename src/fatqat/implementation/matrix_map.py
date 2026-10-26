@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import inspect
 from math import prod
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
@@ -85,6 +85,21 @@ class MatrixImplementation:
         """
         return None
 
+    def _batch_builder(self, op: Operation) -> "_BatchedBuilder | None":
+        """Return a vectorized builder for sweeps of ``op``, or ``None``.
+
+        ``None`` (the default for every rule) means sweep replay calls the
+        rule once per row. Only canonical built-in registrations override
+        this, via `_KeyedImplementation`.
+        """
+        return None
+
+
+# A batched builder receives a field accessor (a float64 column for a
+# `Parameter` field, the declared value otherwise) and the program targets,
+# and returns an ``(rows, d, d)`` matrix stack.
+_BatchedBuilder = Callable[[Callable[[str], Any], tuple[RegisterRef, ...]], np.ndarray]
+
 
 class _KeyedImplementation(MatrixImplementation):
     """Delegating wrapper that attaches canonical kernel identity to a rule.
@@ -92,12 +107,28 @@ class _KeyedImplementation(MatrixImplementation):
     Applied only by ``default_matrix_implementation_map()`` at registration
     time. The wrapped rule keeps full ownership of matrix production; this
     wrapper adds exactly one fact - the `BuiltinKernelKey` naming which
-    canonical implementation the caller selected.
+    canonical implementation the caller selected - plus, for a parametric
+    gate, the batched twin of its rule used by sweep replay.
+
+    The batched twin applies only to exactly ``op_cls``. A keyed rule can be
+    re-registered for another class, which may override `validate_targets`
+    or the fields the builder reads. The built-in classes validate targets
+    without reading their angles, and a template is validated when it joins
+    a program, so batched replay has nothing to re-check.
     """
 
-    def __init__(self, rule: MatrixImplementation, key: "BuiltinKernelKey") -> None:
+    def __init__(
+        self,
+        rule: MatrixImplementation,
+        key: "BuiltinKernelKey",
+        *,
+        op_cls: type[Operation] | None = None,
+        batch: _BatchedBuilder | None = None,
+    ) -> None:
         self._rule = rule
         self._key = key
+        self._op_cls = op_cls
+        self._batch = batch
 
     def __call__(
         self, op: Operation, *, targets: tuple[RegisterRef, ...] = ()
@@ -108,6 +139,11 @@ class _KeyedImplementation(MatrixImplementation):
         self, op: Operation, *, targets: tuple[RegisterRef, ...]
     ) -> "BuiltinKernelKey | None":
         return self._key
+
+    def _batch_builder(self, op: Operation) -> _BatchedBuilder | None:
+        if self._batch is None or type(op) is not self._op_cls:
+            return None
+        return self._batch
 
 
 def _validate_matrix_shape(

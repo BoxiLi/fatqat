@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, fields, replace
 from math import prod
 from numbers import Real
@@ -14,21 +14,13 @@ from .._index_allocation import _ClassicalAllocation, _EngineAllocation
 from .._parameter_binding import _parameter_field_slots
 from ..errors import MatrixImplementationError, UnsupportedOperationError
 from ..implementation import MatrixImplementation, MatrixImplementationMap
-from ..implementation.matrix_map import _build_matrix, _validate_matrix_shape
-from ..implementation.base_map import _select_implementation
-from ..implementation.matrices import (
-    _H,
-    _SDG,
-    _cphase_batch,
-    _phase_batch,
-    _rx_batch,
-    _ry_batch,
-    _rz_batch,
-    _subspace_rx_batch,
-    _subspace_ry_batch,
-    _subspace_rz_batch,
-    _u_matrix_batch,
+from ..implementation.matrix_map import (
+    _BatchedBuilder,
+    _build_matrix,
+    _validate_matrix_shape,
 )
+from ..implementation.base_map import _select_implementation
+from ..implementation.matrices import _H, _SDG
 from ..noise import NoiseModel
 from ..noise.base import _validate_kraus_shapes
 from .. import operations as ops
@@ -440,73 +432,10 @@ def _materialize_recipe(
     )
 
 
-# Built-in parametric rules with a batched twin in `implementation.matrices`.
-# A recipe takes the batched path only when its kernel identity is listed here
-# and its operation is exactly the listed class: only canonical registrations
-# carry a kernel key, but a keyed rule can be re-registered for another class,
-# which may override `validate_targets` or the fields a builder reads. The
-# listed classes validate targets without reading their angles, and the
-# template was validated when it joined the program, so replay has nothing to
-# re-check. A builder receives a field accessor (a θ column for a `Parameter`
-# field, the declared value otherwise) and the targets.
-_BatchedBuilder = Callable[[Callable[[str], Any], tuple[RegisterRef, ...]], np.ndarray]
-_BATCHED_RULES: dict[BuiltinKernelKey, tuple[type[Operation], _BatchedBuilder]] = {
-    BuiltinKernelKey.RX: (ops.RX, lambda field, _: _rx_batch(field("theta"))),
-    BuiltinKernelKey.RY: (ops.RY, lambda field, _: _ry_batch(field("theta"))),
-    BuiltinKernelKey.RZ: (ops.RZ, lambda field, _: _rz_batch(field("theta"))),
-    BuiltinKernelKey.PHASE: (
-        ops.Phase,
-        lambda field, _: _phase_batch(field("theta")),
-    ),
-    BuiltinKernelKey.U: (
-        ops.U,
-        lambda field, _: _u_matrix_batch(field("theta"), field("phi"), field("lam")),
-    ),
-    BuiltinKernelKey.U1: (ops.U1, lambda field, _: _phase_batch(field("lam"))),
-    BuiltinKernelKey.U2: (
-        ops.U2,
-        lambda field, _: _u_matrix_batch(np.pi / 2, field("phi"), field("lam")),
-    ),
-    BuiltinKernelKey.U3: (
-        ops.U3,
-        lambda field, _: _u_matrix_batch(field("theta"), field("phi"), field("lam")),
-    ),
-    BuiltinKernelKey.CPHASE: (
-        ops.CPhase,
-        lambda field, _: _cphase_batch(field("theta")),
-    ),
-    BuiltinKernelKey.SUBSPACE_RX: (
-        ops.SubspaceRX,
-        lambda field, targets: _subspace_rx_batch(
-            targets[0].register.dim, field("subspace"), field("theta")
-        ),
-    ),
-    BuiltinKernelKey.SUBSPACE_RY: (
-        ops.SubspaceRY,
-        lambda field, targets: _subspace_ry_batch(
-            targets[0].register.dim, field("subspace"), field("theta")
-        ),
-    ),
-    BuiltinKernelKey.SUBSPACE_RZ: (
-        ops.SubspaceRZ,
-        lambda field, targets: _subspace_rz_batch(
-            targets[0].register.dim, field("subspace"), field("theta")
-        ),
-    ),
-}
-
 # Bytes of batched gate matrices held at once during replay. A chunk takes as
 # many rows as fit, and at least one, so a high-dimensional gate never holds
 # more matrices at once than per-row replay would.
 _REPLAY_CHUNK_BYTES = 64 * 2**20
-
-
-def _batched_builder(recipe: _MatrixRecipe) -> _BatchedBuilder | None:
-    """Return the recipe's batched builder, or ``None`` if it has no twin."""
-    entry = _BATCHED_RULES.get(recipe.kernel_key)  # type: ignore[arg-type]
-    if entry is None or type(recipe.operation_template) is not entry[0]:
-        return None
-    return entry[1]
 
 
 def _build_gate_matrix_batch(
@@ -573,7 +502,11 @@ class _ParametricPlan:
         yielded.
         """
         builders = [
-            _batched_builder(step) if isinstance(step, _MatrixRecipe) else None
+            (
+                step.rule._batch_builder(step.operation_template)
+                if isinstance(step, _MatrixRecipe)
+                else None
+            )
             for step in self.steps
         ]
         row_bytes = sum(

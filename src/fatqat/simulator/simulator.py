@@ -448,6 +448,7 @@ class Simulator:
         kinds, indices and conditions, so they are valid for every row.
         """
         operations = _break_grouped_operations(program._instructions)
+        # pylint: disable-next=fixme
         # TODO: Support custom operations in run_sweep.
         if any(
             isinstance(step, _AppliedOperation)
@@ -816,6 +817,7 @@ class Simulator:
 
     def _prepare_initial_state(self, initial: Any) -> EvolutionState[Any]:
         """Snapshot public evolution data; preserve quantum-only input support."""
+        # pylint: disable-next=fixme
         # TODO: clean this up, being an operator engine does not inherently rule out custom behavior.
         if initial is not None and self._engine.capabilities.quantum.is_operator:
             raise BackendValidationError(
@@ -844,6 +846,7 @@ class Simulator:
             initial_state=None,
             simulation_config=simulation_config,
         )
+        # pylint: disable-next=fixme
         # TODO: Support custom operations
         if any(isinstance(step, CustomOperationStep) for step in execution.plan):
             raise UnsupportedOperationError(

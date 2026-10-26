@@ -21,7 +21,6 @@ from .._expectation import (
     _reduce_outcome_counts,
 )
 from .._parameter_binding import (
-    _discover_parameters,
     _normalize_parameter_batch,
     _raise_for_unbound_parameters,
 )
@@ -75,6 +74,7 @@ from .._backends.view_normalization import ProgramInstruction, _break_grouped_op
 from .._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    ApplyParametricMatrixStep,
     CustomOperationStep,
     MeasurementStep,
     ResetStep,
@@ -119,7 +119,7 @@ _METHOD_SPECS: dict[str, _MethodSpec] = {
 class _PreparedExecution:
     """Program execution facts shared by every Simulator consumer."""
 
-    plan: tuple[ResolvedStep, ...] | planning._ParametricPlan
+    plan: tuple[ResolvedStep, ...]
     facts: _PlanFacts
     lowering: _LoweringContext
     simulation: _SimulationConfig
@@ -417,8 +417,15 @@ class Simulator:
         program: Program,
         *,
         context: _LoweringContext | None = None,
+        sweep: bool = False,
     ) -> tuple[tuple[ResolvedStep, ...], _PlanFacts]:
-        """Lower and freeze once, then derive common plan facts."""
+        """Lower and freeze once, then derive common plan facts.
+
+        A sweep keeps parameter-holding gates as `ApplyParametricMatrixStep`
+        values that ``run_sweep`` binds once per row. Plan facts read only
+        step kinds, indices and conditions, so they are valid for every row.
+        Every other caller must lower a fully bound program.
+        """
         if context is None:
             resource_layout = self._resolve_resource_layout(program)
             context = _LoweringContext(
@@ -429,28 +436,11 @@ class Simulator:
                 classical_allocation=_ClassicalAllocation.from_program(program),
             )
         operations = _break_grouped_operations(program._instructions)
-        plan = tuple(self._lower(operations, context))
-        return plan, self._analyze_lowered_plan(plan)
-
-    def _prepare_parametric_program(
-        self,
-        program: Program,
-        *,
-        context: _LoweringContext,
-        param_order: tuple[Parameter, ...],
-    ) -> tuple[planning._ParametricPlan, _PlanFacts]:
-        """Lower once for a sweep, deferring parameter-holding gates.
-
-        The sweep counterpart of ``_prepare_program``: the same single lowering
-        pass and plan-fact analysis, but parameter-holding operations become
-        matrix recipes inside a `planning._ParametricPlan` that
-        ``run_sweep`` materializes once per θ row. Plan facts read only step
-        kinds, indices and conditions, so they are valid for every row.
-        """
-        operations = _break_grouped_operations(program._instructions)
+        if not sweep:
+            _raise_for_unbound_parameters(program._instructions)
         # pylint: disable-next=fixme
         # TODO: Support custom operations in run_sweep.
-        if any(
+        elif any(
             isinstance(step, _AppliedOperation)
             and isinstance(step.operation, CustomOperation)
             for step in operations
@@ -458,10 +448,8 @@ class Simulator:
             raise UnsupportedOperationError(
                 "run_sweep does not support custom operations"
             )
-        steps = tuple(self._lower(operations, context, param_order=param_order))
-        return planning._ParametricPlan(steps, param_order), self._analyze_lowered_plan(
-            steps
-        )
+        plan = tuple(self._lower(operations, context))
+        return plan, self._analyze_lowered_plan(plan)
 
     def run(
         self,
@@ -582,9 +570,7 @@ class Simulator:
         config, context = self._prepare_run(
             execution, shots=shots, result_config=result_config
         )
-        plan = execution.plan
-        assert isinstance(plan, tuple), "run() lowers fully bound programs only"
-        return self._execute_plan(plan, execution, config, context)
+        return self._execute_plan(execution.plan, execution, config, context)
 
     def run_sweep(
         self,
@@ -602,7 +588,8 @@ class Simulator:
         Single parameters accept shape ``(N,)`` and parameter vectors of
         length ``M`` accept shape ``(N, M)``. All entries must use the same
         ``N``. Rows run in input order with the same options. The batch is
-        validated before execution. One explicit
+        validated before execution and stored as NumPy arrays, so a custom
+        matrix rule may receive a row's value as a NumPy scalar. One explicit
         seed is reused for every row, so sampled row errors can be correlated.
         Binding and row-validation errors raise directly. Execution errors
         follow ``run()``'s error-handling policy; no partial list is exposed.
@@ -691,29 +678,29 @@ class Simulator:
             >>> ["statevector" in result.available_data for result in results]
             [True, True]
         """
-        rows = _normalize_parameter_batch(program._instructions, bindings)
+        columns = _normalize_parameter_batch(program._instructions, bindings)
         # Structural resolution and lowering happen once for the whole batch,
         # on the same direct-raise validation path as run(): layout,
         # allocation, noise-selector validation, and rule selection read
         # operation types and targets only, so they cannot depend on θ values.
-        param_order = _discover_parameters(program._instructions)
         execution = self._prepare_execution(
             program,
             resource_layout=resource_layout,
             initial_state=initial_state,
             simulation_config=simulation_config,
-            param_order=param_order,
+            sweep=True,
         )
         config, context = self._prepare_run(
             execution, shots=shots, result_config=result_config
         )
-        template = execution.plan
-        assert isinstance(template, planning._ParametricPlan)
-        thetas = [tuple(row[parameter] for parameter in param_order) for row in rows]
+        plan = planning._inject_parameter_values(execution.plan, columns)
+        n_rows = len(next(iter(columns.values())))
         results: list[Result] = []
         # Rule and shape failures raise directly from the iteration, exactly
         # as they raise directly from lowering in run().
-        for point_plan in template.resolve_rows(thetas):
+        for point_plan in self._engine.bind_sweep(
+            plan, n_rows, system_dims=context.system_dims
+        ):
             point_job = self._execute_plan(point_plan, execution, config, context)
             try:
                 results.append(point_job.result())
@@ -759,7 +746,7 @@ class Simulator:
         resource_layout: ResourceLayout | None,
         initial_state: Any,
         simulation_config: dict[str, Any] | None,
-        param_order: tuple[Parameter, ...] | None = None,
+        sweep: bool = False,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
         simulation = _normalize_config(
@@ -798,13 +785,7 @@ class Simulator:
             engine_allocation=engine_allocation,
             classical_allocation=classical_allocation,
         )
-        plan: tuple[ResolvedStep, ...] | planning._ParametricPlan
-        if param_order is None:
-            plan, facts = self._prepare_program(program, context=lowering)
-        else:
-            plan, facts = self._prepare_parametric_program(
-                program, context=lowering, param_order=param_order
-            )
+        plan, facts = self._prepare_program(program, context=lowering, sweep=sweep)
         prepared = _PreparedExecution(
             plan=plan,
             facts=facts,
@@ -891,8 +872,6 @@ class Simulator:
         shots: int,
     ) -> tuple[tuple[float, ...], tuple[_BoundExpectationOccurrence, ...]]:
         """Bind observables and prepare expectation work from a lowered program."""
-        plan = execution.plan
-        assert isinstance(plan, tuple), "expectation runs lower bound programs only"
         if self._engine.capabilities.quantum.is_operator:
             raise UnsupportedOperationError(
                 f"method={self._state_field!r} computes an operator, not a state "
@@ -987,7 +966,6 @@ class Simulator:
     ) -> EvolutionState:
         """Execute once and retain quantum and classical initialization together."""
         plan = execution.plan
-        assert isinstance(plan, tuple)
         context = _RunContext(
             request=_ResultRequest(counts=False, final_state=True),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
@@ -1015,7 +993,6 @@ class Simulator:
     ) -> tuple[float, ...]:
         """Contract every observable against one backend-evolved state."""
         plan = execution.plan
-        assert isinstance(plan, tuple)
         terms_by_observable = [[] for _constant in constants]
         for bound in bound_occurrences:
             terms_by_observable[bound.occurrence.observable_index].append(
@@ -1052,7 +1029,6 @@ class Simulator:
     ) -> tuple[tuple[float, ...], tuple[float, ...]]:
         """Execute native outcomes for each independent term occurrence."""
         plan = execution.plan
-        assert isinstance(plan, tuple)
         base_state = (
             self._execute_expectation_base(execution)
             if not execution.facts.stochastic_final_state
@@ -1291,9 +1267,7 @@ class Simulator:
         # Engine method support, such as measurement, reset, channel noise, and classical register.
         method = self._state_field
         if capabilities.quantum.is_operator:
-            plan = execution.plan
-            steps = plan.steps if isinstance(plan, planning._ParametricPlan) else plan
-            if any(isinstance(step, CustomOperationStep) for step in steps):
+            if any(isinstance(step, CustomOperationStep) for step in execution.plan):
                 raise UnsupportedOperationError(
                     "custom operations require statevector or density_matrix execution"
                 )
@@ -1405,9 +1379,7 @@ class Simulator:
         self,
         operations: Sequence[ProgramInstruction],
         context: _LoweringContext,
-        *,
-        param_order: tuple[Parameter, ...] | None = None,
-    ) -> list[ResolvedStep | planning._MatrixRecipe]:
+    ) -> list[ResolvedStep]:
         """Lower a program into an execution plan in one pass.
 
         Dispatches each instruction to matrix-planning helpers, threading this
@@ -1429,15 +1401,13 @@ class Simulator:
         `MeasurementStep`/`ResetStep` targets and conditions. Grouped
         frontend operations are expanded before this method is called.
 
-        ``param_order`` is the sweep's θ order. When given, a gate whose
-        fields hold `Parameter`s lowers to a `planning._MatrixRecipe` instead
-        of a concrete `ApplyMatrixStep`; ``None`` (every ordinary run) keeps
-        lowering fully concrete and rejects unbound parameters.
+        A gate whose fields hold `Parameter`s lowers to an
+        `ApplyParametricMatrixStep`; only sweeps lower such programs.
         """
         resource_layout = context.resource_layout
         engine_allocation = context.engine_allocation
         classical_allocation = context.classical_allocation
-        plan: list[ResolvedStep | planning._MatrixRecipe] = []
+        plan: list[ResolvedStep] = []
 
         for step in operations:
             if isinstance(step, Measurement):
@@ -1471,7 +1441,6 @@ class Simulator:
                             classical_allocation,
                             self._impl_map,
                             self._noise_model,
-                            param_order=param_order,
                         )
                     )
 
@@ -1479,14 +1448,14 @@ class Simulator:
 
     def _analyze_lowered_plan(
         self,
-        plan: Sequence[ResolvedStep | planning._MatrixRecipe],
+        plan: Sequence[ResolvedStep],
     ) -> _PlanFacts:
         """Translate one lowered plan into common execution semantics."""
         return self._analyze_common_plan_facts(plan)
 
     def _analyze_common_plan_facts(
         self,
-        plan: Sequence[ResolvedStep | planning._MatrixRecipe],
+        plan: Sequence[ResolvedStep],
         *,
         claimed_step_types: tuple[type[object], ...] = (),
     ) -> _PlanFacts:
@@ -1510,7 +1479,7 @@ class Simulator:
                 stochastic_final_state = True
                 continue
 
-            if isinstance(step, (ApplyMatrixStep, planning._MatrixRecipe)):
+            if isinstance(step, (ApplyMatrixStep, ApplyParametricMatrixStep)):
                 continue
             if isinstance(step, CustomOperationStep):
                 # Arbitrary callbacks may sample and reset even under DM semantics.

@@ -2,7 +2,9 @@
 
 A :py:class:`~fatqat.Program` lowers to a `list[ResolvedStep]`: each step is either an
 `ApplyMatrixStep` (a local matrix payload built from a matrix-implementation
-rule plus layout-resolved target indices), an `ApplyChannelStep` (a Kraus
+rule plus layout-resolved target indices), an `ApplyParametricMatrixStep` (the
+same, with the matrix deferred until a sweep row binds its parameters), an
+`ApplyChannelStep` (a Kraus
 payload built from a channel-implementation rule, for channel-representable
 noise), a `MeasurementStep`, or a `ResetStep`. Defined here, separate from
 both `implementation/` / `noise/` (the rule protocols that only ever produce
@@ -20,8 +22,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from ..operations import Operation
+    from ..implementation import MatrixImplementation
     from ..implementation.custom import CustomOperationImplementation
+    from ..operations import Operation
+    from ..registers import RegisterRef
 
 
 class BuiltinKernelKey(enum.Enum):
@@ -117,6 +121,38 @@ class ApplyMatrixStep:
         if self.matrix.flags.writeable:
             object.__setattr__(self, "matrix", np.array(self.matrix, copy=True))
         self.matrix.flags.writeable = False
+
+
+@dataclass(frozen=True)
+class ApplyParametricMatrixStep:
+    """A matrix step whose operation still holds `Parameter` fields.
+
+    Only sweep lowering produces this step; ordinary runs reject unbound
+    programs first. Lowering leaves ``values`` empty, and the sweep then
+    injects one value column per `Parameter` field. Binding a row
+    substitutes those values and calls ``implementation`` to produce an
+    `ApplyMatrixStep`, so engines execute bound plans only and never handle
+    `Parameter` objects. Target dimensions and kernel identity are derived
+    at binding rather than stored.
+
+    Attributes:
+        operation: The operation as declared, with `Parameter` fields.
+        implementation: The matrix rule selected during lowering.
+        targets: Program targets passed to the rule and to
+            ``operation.validate_targets``.
+        target_indices: Flat subsystem indices the matrix acts on.
+        condition: Optional feedforward guard, as on `ApplyMatrixStep`.
+        values: ``(field name, column)`` for each `Parameter` field, in
+            dataclass field order. Each column is a read-only array holding
+            one value per sweep row.
+    """
+
+    operation: Operation
+    implementation: MatrixImplementation
+    targets: tuple[RegisterRef, ...]
+    target_indices: tuple[int, ...]
+    condition: tuple[tuple[int, int], ...] | None = None
+    values: tuple[tuple[str, np.ndarray], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -296,6 +332,7 @@ class CustomOperationStep:
 ResolvedStep = (
     CustomOperationStep
     | ApplyMatrixStep
+    | ApplyParametricMatrixStep
     | ApplyChannelStep
     | LossStep
     | MeasurementStep

@@ -14,6 +14,7 @@ import numpy as np
 
 from ._parameter_binding import (
     _normalize_parameter_batch,
+    _parameter_batch_rows,
     _raise_for_unbound_parameters,
 )
 from .errors import BackendValidationError
@@ -198,7 +199,9 @@ class Estimator:
             >>> [round(result.get_expectation(), 6) for result in results]
             [1.0, 0.540302]
         """
-        rows = _normalize_parameter_batch(program._instructions, bindings)
+        rows = _parameter_batch_rows(
+            _normalize_parameter_batch(program._instructions, bindings)
+        )
         results: list[Result] = []
         for row in rows:
             bound = program._assign_normalized_parameters(row)

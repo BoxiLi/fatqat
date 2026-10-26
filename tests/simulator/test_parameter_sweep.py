@@ -13,19 +13,21 @@ import pytest
 import fatqat as fq
 import fatqat.operations as ops
 from fatqat._backends.backend_utils import _LoweringContext
-from fatqat._backends import steps as steps_module
-from fatqat._backends.steps import ApplyMatrixStep, ResolvedStep
+from fatqat._backends.steps import (
+    ApplyMatrixStep,
+    ApplyParametricMatrixStep,
+    ResolvedStep,
+)
 from fatqat._index_allocation import _ClassicalAllocation
-from fatqat._parameter_binding import _discover_parameters
 from fatqat.errors import BackendValidationError, MatrixImplementationError
 from fatqat.implementation import MatrixImplementationMap
 from fatqat.job import Job
 from fatqat.operations import Operation
 from fatqat.resource_layout import ResourceLayout
 from fatqat.result import Result
-from fatqat.simulator import Simulator
-from fatqat.simulator import planning
-from fatqat.simulator.planning import _MatrixRecipe, _ParametricPlan
+from fatqat.simulator import Simulator, planning
+from fatqat.simulator._engine import binding
+from fatqat.simulator._engine.binding import _bind_rows
 
 
 def _rx_matrix(angle):
@@ -238,7 +240,7 @@ def test_every_builtin_parametric_gate_matches_explicit_loop(
 
 def test_counts_match_explicit_loop_across_replay_chunks(monkeypatch):
     # Room for three 2x2 complex matrices per chunk: 7 rows take 3 chunks.
-    monkeypatch.setattr(planning, "_REPLAY_CHUNK_BYTES", 3 * 4 * 16)
+    monkeypatch.setattr(binding, "_REPLAY_CHUNK_BYTES", 3 * 4 * 16)
     theta = fq.Parameter("theta")
     program = fq.Program(1, 1)
     program.add(ops.RY(theta), 0)
@@ -260,15 +262,15 @@ def test_counts_match_explicit_loop_across_replay_chunks(monkeypatch):
 
 def test_replay_chunks_are_sized_by_matrix_bytes(monkeypatch):
     # Room for two 3x3 complex matrices per chunk: 5 rows take chunks 2, 2, 1.
-    monkeypatch.setattr(planning, "_REPLAY_CHUNK_BYTES", 2 * 9 * 16)
+    monkeypatch.setattr(binding, "_REPLAY_CHUNK_BYTES", 2 * 9 * 16)
     chunk_sizes = []
-    build = planning._build_gate_matrix_batch
+    build = binding._build_matrix_batch
 
-    def recording_build(recipe, builder, thetas):
-        chunk_sizes.append(len(thetas))
-        return build(recipe, builder, thetas)
+    def recording_build(step, builder, target_dims, rows):
+        chunk_sizes.append(rows.stop - rows.start)
+        return build(step, builder, target_dims, rows)
 
-    monkeypatch.setattr(planning, "_build_gate_matrix_batch", recording_build)
+    monkeypatch.setattr(binding, "_build_matrix_batch", recording_build)
     theta = fq.Parameter("theta")
     program = fq.Program([fq.QuantumRegister(1, dim=3)])
     program.add(ops.SubspaceRX(theta, (0, 2)), 0)
@@ -516,40 +518,72 @@ def test_parametric_program_lowers_to_deferred_picklable_steps():
     program.add(ops.RX(theta), 0)
     backend = Simulator("SV")
     layout = backend._resolve_resource_layout(program)
-    param_order = _discover_parameters(program._instructions)
     context = _LoweringContext(
         resource_layout=layout,
         engine_allocation=backend._allocate_engine_indices(program, layout),
         classical_allocation=_ClassicalAllocation.from_program(program),
     )
 
-    plan, _facts = backend._prepare_parametric_program(
-        program, context=context, param_order=param_order
-    )
+    template, _facts = backend._prepare_program(program, context=context, sweep=True)
 
-    assert isinstance(plan, _ParametricPlan)
-    assert plan.param_order == param_order
-    assert [type(step) for step in plan.steps] == [ApplyMatrixStep, _MatrixRecipe]
-    deferred = plan.steps[1]
-    assert deferred.param_slots == (0,)
-    assert deferred.target_dims == (2,)
-    assert deferred.target_indices == (0,)
-    # Non-parametric steps are shared with the resolved plans, not rebuilt.
-    (resolved,) = plan.resolve_rows([(0.3,)])
-    assert resolved[0] is plan.steps[0]
-    assert isinstance(resolved[1], ApplyMatrixStep)
-    assert np.allclose(resolved[1].matrix, _rx_matrix(0.3))
-    # The deferred plan is a plain execution payload: it pickles by value.
-    restored = pickle.loads(pickle.dumps(plan))
-    (resolved,) = restored.resolve_rows([(0.3,)])
-    assert np.allclose(resolved[1].matrix, _rx_matrix(0.3))
+    assert [type(step) for step in template] == [
+        ApplyMatrixStep,
+        ApplyParametricMatrixStep,
+    ]
+    assert template[1].operation.theta is theta
+    assert template[1].target_indices == (0,)
+    assert template[1].values == ()
+    column = np.array([0.3, 0.6])
+    plan = planning._inject_parameter_values(template, {theta: column})
+    assert plan[0] is template[0]
+    ((name, injected),) = plan[1].values
+    assert name == "theta" and injected is column
+    # Non-parametric steps are shared with the bound plans, not rebuilt.
+    first, second = _bind_rows(plan, 2, (2,))
+    assert first[0] is plan[0]
+    assert isinstance(first[1], ApplyMatrixStep)
+    assert np.allclose(first[1].matrix, _rx_matrix(0.3))
+    assert np.allclose(second[1].matrix, _rx_matrix(0.6))
+    # The value-injected plan is plain data: it pickles by value on its own.
+    (restored,) = _bind_rows(pickle.loads(pickle.dumps(plan)), 1, (2,))
+    assert np.allclose(restored[1].matrix, _rx_matrix(0.3))
 
 
-def test_resolved_step_union_holds_only_engine_executable_steps():
-    # ResolvedStep promises every member can be handed to an engine as-is; the
-    # deferred sweep recipe lives in the simulator's private plan type instead.
-    assert _MatrixRecipe not in typing.get_args(ResolvedStep)
-    assert not hasattr(steps_module, "ParametricMatrixStep")
+def test_engines_reject_unbound_parametric_steps():
+    theta = fq.Parameter("theta")
+    program = fq.Program(1)
+    program.add(ops.RX(theta), 0)
+    backend = Simulator("SV")
+    template, _facts = backend._prepare_program(program, sweep=True)
+
+    assert ApplyParametricMatrixStep in typing.get_args(ResolvedStep)
+    with pytest.raises(RuntimeError, match="injected before binding"):
+        next(backend._engine.bind_sweep(template, 1, system_dims=(2,)))
+    with pytest.raises(RuntimeError, match="bound before execution"):
+        # The guard runs before the context, policy, or state is read.
+        backend._engine._execute_plan(template, None, None, None)
+
+
+def test_custom_rule_receives_each_row_value():
+    theta = fq.Parameter("theta")
+    program = fq.Program(1)
+    program.add(ops.RX(theta), 0)
+    received = []
+
+    def recording_rx(op):
+        received.append(op.theta)
+        return _rx_matrix(op.theta)
+
+    impl_map = MatrixImplementationMap()
+    impl_map.add(ops.RX, recording_rx)
+    backend = Simulator("SV", implementation_map=impl_map)
+
+    results = backend.run_sweep(program, {theta: [0, 0.5, 1.5]}, **_STATE_ONLY)
+
+    assert received == [0, 0.5, 1.5]
+    for result, value in zip(results.result(), received, strict=True):
+        expected = _rx_matrix(value) @ np.array([1, 0])
+        assert np.allclose(result.get_statevector(), expected)
 
 
 def test_replay_validates_realized_matrix_shape():

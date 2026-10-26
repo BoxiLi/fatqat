@@ -19,7 +19,7 @@ import numpy as np
 from ..operations import CustomOperation, Operation
 from .custom import CustomOperationImplementation
 from ..registers import RegisterRef
-from ._base_map import (
+from .base_map import (
     DeviceOperands,
     _BaseImplementationMap,
 )

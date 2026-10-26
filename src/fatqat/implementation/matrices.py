@@ -1,7 +1,7 @@
 """Concrete matrix builders: fixed-gate constants, rotation/phase gates, and
 dimension-generic (qudit) gate families.
 
-See `implementation.base` for the local-matrix convention every builder here
+See `implementation.matrix_map` for the local-matrix convention every builder here
 follows (target/control operand ordering, MSB/LSB layout).
 
 Adding a new gate's rule (registered in `implementation.registry`):

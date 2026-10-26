@@ -8,7 +8,7 @@ from typing import Callable
 
 from ..._pulse_values import ControlChannel, PulseControl, TIME_EPSILON
 from ...errors import BackendValidationError, PulseImplementationError
-from ...implementation._base_map import (
+from ...implementation.base_map import (
     DeviceOperands,
     _BaseImplementationMap,
 )

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from .. import operations as ops
 from .._backends.steps import BuiltinKernelKey as K
-from .base import (
+from .matrix_map import (
     FixedMatrix,
     MatrixImplementationMap,
     _DimMatrix,
     _KeyedImplementation,
     _wrap_rule,
 )
-from ._base_map import _resolve_operation_class
+from .base_map import _resolve_operation_class
 from .matrices import (
     _CCX,
     _CS,

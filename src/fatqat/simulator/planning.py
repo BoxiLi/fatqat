@@ -18,7 +18,7 @@ from ..errors import (
     UnsupportedOperationError,
 )
 from ..implementation import MatrixImplementation, MatrixImplementationMap
-from ..implementation._base_map import _select_implementation
+from ..implementation.base_map import _select_implementation
 from ..implementation.matrices import (
     _H,
     _SDG,

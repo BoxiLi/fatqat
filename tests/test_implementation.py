@@ -14,7 +14,7 @@ from fatqat.implementation import (
     MatrixImplementation,
     default_matrix_implementation_map,
 )
-from fatqat.implementation.base import _DimMatrix
+from fatqat.implementation.matrix_map import _DimMatrix
 from fatqat.implementation.matrices import (
     cclock_matrix,
     clock_matrix,

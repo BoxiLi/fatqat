@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import inspect
 
-from .base import (
+from .matrix_map import (
     DeviceOperands,
     FixedMatrix,
     MatrixImplementationMap,

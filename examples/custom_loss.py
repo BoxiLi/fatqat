@@ -105,7 +105,7 @@ class MyLossImplementation(CustomOperationImplementation):
 class ReportLossCountImplementation(CustomOperationImplementation):
     @staticmethod
     def execute(operation, state, context):
-        if not 0 <= operation.destination < context.n_clbits:
+        if not 0 <= operation.destination < len(state.classical.clbits):
             raise ValueError("destination must be a valid classical slot")
         state.classical.clbits[operation.destination] = state.classical.extra[
             "loss_count"

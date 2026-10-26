@@ -65,7 +65,7 @@ from .._backends.backend_utils import (
 from . import planning
 from ._engine.state import EvolutionState
 from ._execution_contract import (
-    _ExecutionContext,
+    _RunContext,
     _PlanFacts,
     RawResult,
     _ResultRequest,
@@ -728,7 +728,7 @@ class Simulator:
         *,
         shots: int,
         result_config: dict[str, Any] | None,
-    ) -> tuple[_ResultConfig, _ExecutionContext]:
+    ) -> tuple[_ResultConfig, _RunContext]:
         """Resolve direct results and shot requirements before execution.
 
         Called once per run or sweep batch on the direct-raise validation path.
@@ -742,7 +742,7 @@ class Simulator:
             backend_name=type(self).__name__,
         )
         request = self._validate_run_request(config, shots, execution.facts)
-        context = _ExecutionContext(
+        context = _RunContext(
             request=request,
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
@@ -985,7 +985,7 @@ class Simulator:
         """Execute once and retain quantum and classical initialization together."""
         plan = execution.plan
         assert isinstance(plan, tuple)
-        context = _ExecutionContext(
+        context = _RunContext(
             request=_ResultRequest(counts=False, final_state=True),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
@@ -1019,7 +1019,7 @@ class Simulator:
                 (bound.occurrence.coefficient, bound.engine_factors)
             )
         has_terms = bool(bound_occurrences)
-        context = _ExecutionContext(
+        context = _RunContext(
             request=_ResultRequest(counts=False, final_state=has_terms),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
@@ -1071,7 +1071,7 @@ class Simulator:
                         clbits=clbits + [0] * len(bound.engine_factors),
                     ),
                 )
-            context = _ExecutionContext(
+            context = _RunContext(
                 request=request,
                 system_dims=tuple(execution.lowering.engine_allocation.system_dims),
                 n_clbits=(
@@ -1109,7 +1109,7 @@ class Simulator:
         plan: tuple[ResolvedStep, ...],
         execution: _PreparedExecution,
         config: _ResultConfig,
-        context: _ExecutionContext,
+        context: _RunContext,
     ) -> Job[Result]:
         """Execute one concrete plan under already-validated run settings.
 

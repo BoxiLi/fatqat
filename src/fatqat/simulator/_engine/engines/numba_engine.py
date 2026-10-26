@@ -92,7 +92,7 @@ import numpy as np
 from ..._execution_contract import (
     RawResult,
     _SimulationConfig as SimulationConfig,
-    _ExecutionContext as ExecutionContext,
+    _RunContext,
     _KernelCapabilities,
     _EngineCapabilities,
     _QuantumCapabilities,
@@ -195,7 +195,7 @@ class NumbaSVEngine(_NdarrayEngine):
         self,
         plan: Sequence[ResolvedStep],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
@@ -369,7 +369,7 @@ class NumbaSVEngine(_NdarrayEngine):
 
     def execute_in_process(
         self,
-        context: ExecutionContext,
+        context: _RunContext,
         payload: _PythonExecution | _NumbaTrajectoryExecution,
         policy: ExecutionPolicy,
         *,
@@ -436,7 +436,7 @@ class NumbaDMEngine(_NdarrayEngine):
         self,
         plan: Sequence[ResolvedStep],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
@@ -529,7 +529,7 @@ class _NumbaOperatorRunMixin:
         self,
         plan: Sequence[ResolvedStep],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
@@ -593,7 +593,7 @@ class _NumbaOperatorRunMixin:
 
     def execute_in_process(
         self,
-        context: ExecutionContext,
+        context: _RunContext,
         payload: _NumbaOperatorExecution,
         policy: ExecutionPolicy,
         *,

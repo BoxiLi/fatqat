@@ -21,7 +21,7 @@ class ClassicalState:
     Attributes:
         clbits: Reported digits in classical-register order. None initializes
             all digits to zero. During custom execution this is a list of
-            ``context.n_clbits`` nonnegative int64 integers.
+            nonnegative int64 integers, one per classical-register entry.
         occupied: Present subsystem indices (least-significant tensor factor
             first). During execution, None means full occupancy. In a
             run's initial state, None requests the backend default: full for

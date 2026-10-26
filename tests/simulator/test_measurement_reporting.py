@@ -5,7 +5,7 @@ import numpy as np
 from fatqat.simulator import EvolutionState
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
-    _ExecutionContext,
+    _RunContext,
 )
 from fatqat._backends.steps import ApplyMatrixStep, MeasurementStep
 from fatqat.implementation.matrices import shift_matrix
@@ -30,7 +30,7 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         ),
         ApplyMatrixStep(matrix=x, target_indices=(1,), condition=((0, 0),)),
     )
-    context = _ExecutionContext(
+    context = _RunContext(
         request=_ResultRequest(counts=True, final_state=True),
         system_dims=(3, 2),
         n_clbits=1,

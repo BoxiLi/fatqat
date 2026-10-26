@@ -25,8 +25,8 @@ from ...._backends.steps import (
     ResolvedStep,
 )
 from ....result import _decode_engine_indices_to_clbit_rows
-from ..._execution_contract import _ExecutionContext as ExecutionContext
-from ...custom_operations import ExecutionContext as CustomExecutionContext
+from ..._execution_contract import _RunContext
+from ...custom_operations import ExecutionContext
 from ..state import EvolutionState, QuantumDataT
 from ._reporting import (
     ERASURE_DIGIT,
@@ -159,7 +159,7 @@ def _condition_matches(
 def _run_single_pass(
     execution: _PythonExecution,
     state: EvolutionState[QuantumDataT],
-    context: ExecutionContext,
+    context: _RunContext,
     rng: np.random.Generator,
     *,
     state_requested: bool,
@@ -220,7 +220,7 @@ def _run_single_pass(
 def _run_one_shot(
     execution: _PythonExecution,
     state: EvolutionState[QuantumDataT],
-    context: ExecutionContext,
+    context: _RunContext,
     rng: np.random.Generator,
 ) -> EvolutionState[QuantumDataT]:
     """Run one dynamic-path shot and return its final evolution state.
@@ -243,11 +243,10 @@ def _run_one_shot(
             classical.clbits = clbits
         if isinstance(step, CustomOperationStep):
             if _condition_matches(step.condition, clbits):
-                custom_context = CustomExecutionContext(
-                    step.target_indices,
-                    context.system_dims,
-                    context.n_clbits,
-                    rng,
+                custom_context = ExecutionContext(
+                    targets=step.target_indices,
+                    system_dims=context.system_dims,
+                    rng=rng,
                 )
                 state = step.implementation.execute(
                     step.operation, state, custom_context

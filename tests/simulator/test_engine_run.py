@@ -8,7 +8,7 @@ from fatqat.simulator import Simulator, EvolutionState, ClassicalState
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
     _SimulationConfig,
-    _ExecutionContext,
+    _RunContext,
 )
 from fatqat._backends.steps import (
     ApplyMatrixStep,
@@ -40,7 +40,7 @@ def _context(
     request,
     seed=0,
 ):
-    return _ExecutionContext(
+    return _RunContext(
         request=request,
         system_dims=(2,),
         n_clbits=n_clbits,
@@ -94,7 +94,7 @@ def test_execution_survives_layout_changes(density_matrix):
         ((2, 3, 2), (0, 2), _SERIAL),
         ((2, 3, 2), (0, 2), threaded),
     ):
-        context = _ExecutionContext(
+        context = _RunContext(
             request=_ResultRequest(counts=False, final_state=True),
             system_dims=dims,
             n_clbits=0,

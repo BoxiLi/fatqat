@@ -177,8 +177,8 @@ class _EngineCapabilities:
 
 
 @dataclass(frozen=True, slots=True)
-class _ExecutionContext:
-    """System dimensions, requested outputs, and sampling controls."""
+class _RunContext:
+    """System dimensions, requested outputs, and sampling controls for a run."""
 
     request: _ResultRequest
     system_dims: tuple[int, ...]

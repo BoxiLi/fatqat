@@ -16,7 +16,7 @@ from ..._execution_contract import (
     RawResult,
     _SimulationConfig as SimulationConfig,
     _EngineCapabilities,
-    _ExecutionContext as ExecutionContext,
+    _RunContext,
 )
 from ...._backends.steps import (
     ApplyChannelStep,
@@ -102,7 +102,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         self,
         plan: Sequence[ResolvedStep],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
     ) -> ExecutionPolicy:
@@ -201,7 +201,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         self,
         plan: tuple[ResolvedStep, ...],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
@@ -219,7 +219,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         plan: tuple[ResolvedStep, ...],
         observables: Sequence[tuple[tuple[float, tuple[tuple[int, str], ...]], ...]],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
     ) -> tuple[float, ...]:
@@ -243,7 +243,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def _execute_plan(
         self,
         plan: tuple[ResolvedStep, ...],
-        context: ExecutionContext,
+        context: _RunContext,
         policy: ExecutionPolicy,
         initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
@@ -286,7 +286,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
 
     def execute_in_process(
         self,
-        context: ExecutionContext,
+        context: _RunContext,
         payload: Any,
         policy: ExecutionPolicy,
         *,
@@ -341,7 +341,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
 
     def execute_shot_batch(
         self,
-        context: ExecutionContext,
+        context: _RunContext,
         payload: Any,
         seed_batch: list[np.random.SeedSequence],
         policy: ExecutionPolicy,
@@ -358,7 +358,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def _run_per_shot(
         self,
         payload: _PythonExecution,
-        context: ExecutionContext,
+        context: _RunContext,
         initial_state: EvolutionState[QuantumDataT],
         *,
         state_requested: bool,
@@ -380,7 +380,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def _run_shot_batch(
         self,
         payload: _PythonExecution,
-        context: ExecutionContext,
+        context: _RunContext,
         seed_sequences: Sequence[np.random.SeedSequence],
         initial_state: EvolutionState[QuantumDataT],
     ) -> list[tuple[int, ...]]:

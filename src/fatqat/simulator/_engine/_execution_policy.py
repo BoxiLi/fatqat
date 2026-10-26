@@ -15,7 +15,7 @@ from .state import EvolutionState
 
 from .._execution_contract import (
     _SimulationConfig as SimulationConfig,
-    _ExecutionContext as ExecutionContext,
+    _RunContext,
     _EngineCapabilities as EngineCapabilities,
     _QuantumCapabilities as QuantumCapabilities,
     _KernelCapabilities as KernelCapabilities,
@@ -182,7 +182,7 @@ def _resolve_kernel_scheduling(
 def _plan_python_execution(
     plan: Sequence[ResolvedStep],
     *,
-    context: ExecutionContext,
+    context: _RunContext,
     simulation_config: SimulationConfig,
     initial_state: EvolutionState,
     capabilities: EngineCapabilities,

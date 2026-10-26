@@ -9,18 +9,15 @@ import numpy as np
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    # TODO: This is only temporary until we have a proper backend interface for custom operations.
     """Execution information for one custom-operation call.
 
     Attributes:
         targets: Quantum subsystem indices in operand order. These index
             ``system_dims`` and identify entries in ``state.classical.occupied``.
         system_dims: All subsystem dimensions, least-significant factor first.
-        n_clbits: Classical-register size.
         rng: This shot's random generator, controlled by the simulation seed.
     """
 
     targets: tuple[int, ...]
     system_dims: tuple[int, ...]
-    n_clbits: int
     rng: np.random.Generator

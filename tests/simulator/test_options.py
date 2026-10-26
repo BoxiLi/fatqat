@@ -7,7 +7,7 @@ import fatqat as fq
 import fatqat.operations as ops
 from fatqat._backends.steps import LossStep, MeasurementStep, ResetStep
 from fatqat.simulator._execution_contract import (
-    _ExecutionContext,
+    _RunContext,
     _ResultRequest,
     _SimulationConfig,
     _TrajectoryCapabilities,
@@ -251,7 +251,7 @@ def test_numba_trajectory_workflow_selection(shots, first_step, expected_workflo
     # Numerical results alone cannot detect accidentally disabling compilation.
     policy = NumbaSVEngine()._plan_execution(
         (first_step, MeasurementStep((0,), (0,))),
-        context=_ExecutionContext(
+        context=_RunContext(
             request=_ResultRequest(counts=True, final_state=False),
             system_dims=(2,),
             n_clbits=1,
@@ -277,7 +277,7 @@ def test_process_worker_capacity_follows_the_cpu_affinity_mask(monkeypatch):
     )
     policy = NumpySVEngine()._plan_execution(
         (ResetStep((0,)), MeasurementStep((0,), (0,))),
-        context=_ExecutionContext(
+        context=_RunContext(
             request=_ResultRequest(counts=True, final_state=False),
             system_dims=(2,),
             n_clbits=1,

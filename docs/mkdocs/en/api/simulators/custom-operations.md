@@ -91,5 +91,4 @@ classical register.
       members:
         - targets
         - system_dims
-        - n_clbits
         - rng

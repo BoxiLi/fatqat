@@ -15,7 +15,7 @@ from fatqat._backends.steps import ApplyChannelStep, ApplyMatrixStep, BuiltinKer
 from fatqat.implementation import default_matrix_implementation_map
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
-    _ExecutionContext,
+    _RunContext,
 )
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
@@ -126,7 +126,7 @@ def test_kernel_specs_agree_with_content_classification():
 
 def _counts(engine_cls, plan, dims, n_clbits, shots, seed, request):
     simulator = engine_cls()
-    context = _ExecutionContext(
+    context = _RunContext(
         request=request,
         system_dims=tuple(dims),
         n_clbits=n_clbits,

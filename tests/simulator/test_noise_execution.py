@@ -25,7 +25,7 @@ from fatqat.simulator._engine.engines.numpy_engine import NumpySVEngine
 from fatqat.simulator import EvolutionState
 from fatqat.simulator._execution_contract import (
     _ResultRequest,
-    _ExecutionContext,
+    _RunContext,
 )
 from fatqat.simulator._engine._execution_policy import _ExecutionPolicy
 
@@ -581,7 +581,7 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
         simulator = cls()
         start = np.array([0, 1], dtype=complex)
         untouched = start.copy()
-        context = _ExecutionContext(
+        context = _RunContext(
             request=request,
             system_dims=(2,),
             n_clbits=1,

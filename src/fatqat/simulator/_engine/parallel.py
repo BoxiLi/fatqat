@@ -10,7 +10,7 @@ import numpy as np
 
 from .state import EvolutionState
 from .._execution_contract import (
-    _ExecutionContext as ExecutionContext,
+    _RunContext,
 )
 from ..._backends.steps import ResolvedStep
 from ._execution_policy import (
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
         def execute_shot_batch(
             self,
-            context: ExecutionContext,
+            context: _RunContext,
             payload: Any,
             seed_batch: list[np.random.SeedSequence],
             policy: ExecutionPolicy,
@@ -73,7 +73,7 @@ def _split_into_batches(
 
 def _run_shot_batch(
     engine_factory: Callable[[], _ProcessEngine],
-    context: ExecutionContext,
+    context: _RunContext,
     plan: tuple[ResolvedStep, ...],
     seed_batch: list[np.random.SeedSequence],
     child_policy: ExecutionPolicy,
@@ -104,7 +104,7 @@ def _loky_executor(max_workers: int):
 
 def _run_shots_in_processes(
     engine_factory: Callable[[], _ProcessEngine],
-    context: ExecutionContext,
+    context: _RunContext,
     plan: tuple[ResolvedStep, ...],
     policy: ExecutionPolicy,
     initial_state: EvolutionState,

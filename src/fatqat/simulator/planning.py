@@ -12,12 +12,9 @@ import numpy as np
 
 from .._index_allocation import _ClassicalAllocation, _EngineAllocation
 from .._parameter_binding import _parameter_field_slots
-from ..errors import (
-    BackendValidationError,
-    MatrixImplementationError,
-    UnsupportedOperationError,
-)
+from ..errors import MatrixImplementationError, UnsupportedOperationError
 from ..implementation import MatrixImplementation, MatrixImplementationMap
+from ..implementation.matrix_map import _build_matrix, _validate_matrix_shape
 from ..implementation.base_map import _select_implementation
 from ..implementation.matrices import (
     _H,
@@ -381,22 +378,9 @@ def _lower_gate(
                 )
             )
         else:
-            try:
-                matrix = rule(step.operation, targets=step.targets)
-            except Exception as exc:
-                raise MatrixImplementationError(
-                    f"implementation for {type(step.operation).__name__} raised: {exc}"
-                ) from exc
-
-            expected = prod(target_dims)
-            if matrix.shape != (expected, expected):
-                raise BackendValidationError(
-                    f"{type(step.operation).__name__} resolved to a "
-                    f"{matrix.shape} matrix, incompatible with target "
-                    f"dimensions {target_dims} (expected "
-                    f"{(expected, expected)})"
-                )
-
+            matrix = _build_matrix(
+                rule, step.operation, targets=step.targets, target_dims=target_dims
+            )
             steps.append(
                 ApplyMatrixStep(
                     matrix=matrix,
@@ -442,20 +426,12 @@ def _materialize_recipe(
     # operation; a replayed recipe must give a parameter-dependent target
     # check the same chance to reject the substituted value.
     operation.validate_targets(recipe.targets)
-    try:
-        matrix = recipe.rule(operation, targets=recipe.targets)
-    except Exception as exc:
-        raise MatrixImplementationError(
-            f"implementation for {type(operation).__name__} raised: {exc}"
-        ) from exc
-    expected = prod(recipe.target_dims)
-    if matrix.shape != (expected, expected):
-        raise BackendValidationError(
-            f"{type(operation).__name__} resolved to a "
-            f"{matrix.shape} matrix, incompatible with target "
-            f"dimensions {recipe.target_dims} (expected "
-            f"{(expected, expected)})"
-        )
+    matrix = _build_matrix(
+        recipe.rule,
+        operation,
+        targets=recipe.targets,
+        target_dims=recipe.target_dims,
+    )
     return ApplyMatrixStep(
         matrix=matrix,
         target_indices=recipe.target_indices,
@@ -560,14 +536,7 @@ def _build_gate_matrix_batch(
         raise MatrixImplementationError(
             f"implementation for {type(template).__name__} raised: {exc}"
         ) from exc
-    expected = prod(recipe.target_dims)
-    if stack.shape[1:] != (expected, expected):
-        raise BackendValidationError(
-            f"{type(template).__name__} resolved to a "
-            f"{stack.shape[1:]} matrix, incompatible with target "
-            f"dimensions {recipe.target_dims} (expected "
-            f"{(expected, expected)})"
-        )
+    _validate_matrix_shape(stack.shape[1:], template, recipe.target_dims)
     stack.flags.writeable = False
     return stack
 

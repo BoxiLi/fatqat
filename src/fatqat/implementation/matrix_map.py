@@ -12,10 +12,12 @@ control-first target order.
 from __future__ import annotations
 
 import inspect
+from math import prod
 from typing import TYPE_CHECKING, Callable
 
 import numpy as np
 
+from ..errors import BackendValidationError, MatrixImplementationError
 from ..operations import CustomOperation, Operation
 from .custom import CustomOperationImplementation
 from ..registers import RegisterRef
@@ -106,6 +108,41 @@ class _KeyedImplementation(MatrixImplementation):
         self, op: Operation, *, targets: tuple[RegisterRef, ...]
     ) -> "BuiltinKernelKey | None":
         return self._key
+
+
+def _validate_matrix_shape(
+    shape: tuple[int, ...], op: Operation, target_dims: tuple[int, ...]
+) -> None:
+    """Check a resolved local matrix shape against its target dimensions."""
+    expected = prod(target_dims)
+    if shape != (expected, expected):
+        raise BackendValidationError(
+            f"{type(op).__name__} resolved to a {shape} matrix, incompatible "
+            f"with target dimensions {target_dims} (expected "
+            f"{(expected, expected)})"
+        )
+
+
+def _build_matrix(
+    rule: MatrixImplementation,
+    op: Operation,
+    *,
+    targets: tuple[RegisterRef, ...],
+    target_dims: tuple[int, ...],
+) -> np.ndarray:
+    """Call a matrix rule for one applied operation and validate its shape.
+
+    Rule failures raise `MatrixImplementationError` naming the operation; a
+    wrongly shaped matrix raises `BackendValidationError`.
+    """
+    try:
+        matrix = rule(op, targets=targets)
+    except Exception as exc:
+        raise MatrixImplementationError(
+            f"implementation for {type(op).__name__} raised: {exc}"
+        ) from exc
+    _validate_matrix_shape(matrix.shape, op, target_dims)
+    return matrix
 
 
 def _validate_square_matrix(matrix: np.ndarray) -> None:

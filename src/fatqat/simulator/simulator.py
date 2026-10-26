@@ -62,6 +62,7 @@ from .._backends.backend_utils import (
     _validate_result_shots,
 )
 from . import planning
+from ._engine.binding import _bind_parameter_batch
 from ._engine.state import EvolutionState
 from ._execution_contract import (
     _RunContext,
@@ -814,13 +815,21 @@ class Simulator:
         *,
         shots: int,
         simulation_config: dict[str, Any] | None,
-    ) -> Job[_ExpectationExecution]:
-        """Execute one private exact or sampled expectation request."""
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
+    ) -> Job[list[_ExpectationExecution]]:
+        """Execute a private exact or sampled expectation request per entry.
+
+        ``parameter_values`` are a sweep's validated columns; without them the
+        program is one fully bound entry. The program is prepared once. Exact
+        values evolve every entry in one engine call; sampled values run the
+        single-entry sampling for each bound entry.
+        """
         execution = self._prepare_execution(
             program,
             resource_layout=None,
             initial_state=None,
             simulation_config=simulation_config,
+            parameter_values=parameter_values,
         )
         # pylint: disable-next=fixme
         # TODO: Support custom operations
@@ -833,25 +842,41 @@ class Simulator:
         )
         try:
             if shots == 0 or not bound_occurrences:
-                values = self._execute_exact_expectation(
-                    execution, constants, bound_occurrences, shots=shots
-                )
-                standard_errors = (0.0,) * len(values)
+                entries = [
+                    (values, (0.0,) * len(values))
+                    for values in self._execute_exact_expectation(
+                        execution,
+                        constants,
+                        bound_occurrences,
+                        shots=shots,
+                        n_entries=(
+                            len(next(iter(parameter_values.values())))
+                            if parameter_values
+                            else 1
+                        ),
+                    )
+                ]
             else:
-                values, standard_errors = self._execute_sampled_expectation(
-                    execution,
-                    constants,
-                    bound_occurrences,
-                    shots=shots,
-                )
+                entries = [
+                    self._execute_sampled_expectation(
+                        execution, plan, constants, bound_occurrences, shots=shots
+                    )
+                    for plan in _bind_parameter_batch(
+                        execution.plan,
+                        execution.lowering.engine_allocation.system_dims,
+                    )
+                ]
             return Job(
                 status="DONE",
-                result=_ExpectationExecution(
-                    values,
-                    standard_errors,
-                    method=self._state_field,
-                    runtime=self._runtime,
-                ),
+                result=[
+                    _ExpectationExecution(
+                        values,
+                        standard_errors,
+                        method=self._state_field,
+                        runtime=self._runtime,
+                    )
+                    for values, standard_errors in entries
+                ],
             )
         except Exception as exc:
             if execution.simulation.error_handling == "raise":
@@ -958,9 +983,9 @@ class Simulator:
     def _execute_expectation_base(
         self,
         execution: _PreparedExecution,
+        plan: tuple[ResolvedStep, ...],
     ) -> EvolutionState:
-        """Execute once and retain quantum and classical initialization together."""
-        plan = execution.plan
+        """Execute one bound entry and retain its quantum and classical state."""
         context = _RunContext(
             request=_ResultRequest(counts=False, final_state=True),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
@@ -985,8 +1010,9 @@ class Simulator:
         bound_occurrences: tuple[_BoundExpectationOccurrence, ...],
         *,
         shots: int,
-    ) -> tuple[float, ...]:
-        """Contract every observable against one backend-evolved state."""
+        n_entries: int,
+    ) -> list[tuple[float, ...]]:
+        """Contract every observable against each entry's backend-evolved state."""
         plan = execution.plan
         terms_by_observable = [[] for _constant in constants]
         for bound in bound_occurrences:
@@ -1009,23 +1035,27 @@ class Simulator:
             initial_state=execution.initial_state,
         )
         if not has_terms:
-            return constants
-        return tuple(
-            constant + value for constant, value in zip(constants, values, strict=True)
-        )
+            return [constants] * n_entries
+        return [
+            tuple(
+                constant + value
+                for constant, value in zip(constants, entry_values, strict=True)
+            )
+            for entry_values in values
+        ]
 
     def _execute_sampled_expectation(
         self,
         execution: _PreparedExecution,
+        plan: tuple[ResolvedStep, ...],
         constants: tuple[float, ...],
         bound_occurrences: tuple[_BoundExpectationOccurrence, ...],
         *,
         shots: int,
     ) -> tuple[tuple[float, ...], tuple[float, ...]]:
-        """Execute native outcomes for each independent term occurrence."""
-        plan = execution.plan
+        """Execute native outcomes for each term occurrence of one bound entry."""
         base_state = (
-            self._execute_expectation_base(execution)
+            self._execute_expectation_base(execution, plan)
             if not execution.facts.stochastic_final_state
             else None
         )

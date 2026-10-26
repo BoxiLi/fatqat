@@ -255,10 +255,11 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
-    ) -> tuple[float, ...]:
-        """Evolve and contract Pauli sums within the selected runtime policy.
+    ) -> list[tuple[float, ...]]:
+        """Evolve every parameter entry and contract Pauli sums on its state.
 
-        Empty observables validate execution controls without evolving a state.
+        Returns one tuple of values per entry, in batch order. Empty
+        observables validate execution controls without evolving a state.
         """
         policy = self._select_policy(
             plan,
@@ -267,11 +268,20 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             initial_state=initial_state,
         )
         if not observables:
-            return ()
-        raw = self._dispatch_by_shot_strategy(plan, context, policy, initial_state)
-        if raw.state is None:
-            raise RuntimeError("expectation execution returned no state")
-        return self._expectation_values(raw.state, observables, policy=policy)
+            return []
+        values = []
+        for raw in self.execute(
+            plan,
+            context=context,
+            simulation_config=simulation_config,
+            initial_state=initial_state,
+        ):
+            if raw.state is None:
+                raise RuntimeError("expectation execution returned no state")
+            values.append(
+                self._expectation_values(raw.state, observables, policy=policy)
+            )
+        return values
 
     def _dispatch_by_shot_strategy(
         self,

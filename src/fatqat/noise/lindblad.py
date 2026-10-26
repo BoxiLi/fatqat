@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 from math import sqrt
+from typing import Callable
 
 import numpy as np
 
 from ..errors import BackendValidationError, UnsupportedOperationError
 from ..implementation.matrices import clock_matrix, shift_matrix
-from .base import Channel, _ChannelImplementationRegistry
+from ..implementation._base_map import _BaseImplementationMap
+from .base import Channel
 from .catalog import AmplitudeDamping, Depolarizing, PhaseDamping
 from .relaxation import ThermalRelaxation
 from .transition_relaxation import TransitionRelaxation, transition_operator
 
 
-class LindbladImplementationMap(_ChannelImplementationRegistry):
+def _resolve_channel_type(channel_type: type[Channel]) -> type[Channel]:
+    if not isinstance(channel_type, type) or not issubclass(channel_type, Channel):
+        raise TypeError(f"expected a Channel subclass, got {channel_type!r}")
+    return channel_type
+
+
+class LindbladImplementationMap(_BaseImplementationMap[Callable]):
     """Map exact channel types to local Lindblad rules.
 
     A registered rule has the call shape
@@ -29,6 +37,23 @@ class LindbladImplementationMap(_ChannelImplementationRegistry):
     rule is responsible for the physical meaning and units of its operators.
     Lookup is by exact channel type.
     """
+
+    def __init__(self) -> None:
+        super().__init__(_resolve_channel_type)
+
+    def add(self, channel_type: type[Channel], rule: Callable) -> None:
+        """Register or replace a callable for an exact channel type."""
+        if not callable(rule):
+            raise TypeError(f"rule must be callable, got {rule!r}")
+        self._add_unconstrained(channel_type, lambda _: rule)
+
+    def get(self, channel_type: type[Channel]) -> Callable | None:
+        """Return the registered callable, or None when the type is unsupported."""
+        return self.implementation_for(channel_type)
+
+    def supported_channels(self) -> frozenset[type[Channel]]:
+        """Return an immutable snapshot of the registered channel types."""
+        return self._registered_types()
 
 
 def _qubit_amplitude_operator(

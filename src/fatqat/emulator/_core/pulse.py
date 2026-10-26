@@ -8,9 +8,9 @@ from typing import Callable
 
 from ..._pulse_values import ControlChannel, PulseControl, TIME_EPSILON
 from ...errors import BackendValidationError, PulseImplementationError
-from ...implementation._operation_registry import (
+from ...implementation._base_map import (
     DeviceOperands,
-    _OperationRuleRegistry,
+    _BaseImplementationMap,
 )
 from ...operations import Operation
 from .value_validation import _finite
@@ -354,7 +354,7 @@ def _invoke_pulse_rule(
     return result
 
 
-class PulseImplementationMap:
+class PulseImplementationMap(_BaseImplementationMap[_PulseImplementation]):
     """Map ordinary gates to pulse definitions.
 
     Direct ``PulseOperation`` values bypass this map because their controls
@@ -393,9 +393,7 @@ class PulseImplementationMap:
     """
 
     def __init__(self) -> None:
-        self._registry: _OperationRuleRegistry[_PulseImplementation] = (
-            _OperationRuleRegistry()
-        )
+        super().__init__()
 
     def add(
         self,
@@ -438,7 +436,7 @@ class PulseImplementationMap:
                 registration form.
         """
         if device_operands is not None:
-            self._registry.add_device_operands(
+            self._add_device_operands(
                 op,
                 device_operands,
                 lambda op_cls: _wrap_pulse_rule(op_cls, implementation),
@@ -454,92 +452,8 @@ class PulseImplementationMap:
                 )
             return wrapped
 
-        self._registry.add_unconstrained(op, unconstrained)
-
-    def supports(
-        self,
-        op: Operation | type[Operation],
-        *,
-        device_operands: DeviceOperands | None = None,
-    ) -> bool:
-        """Return whether this map has a matching rule.
-
-        Without ``device_operands``, this reports whether the family has any
-        rule. With operands, it checks the exact tuple or a general rule.
-
-        Args:
-            op: Operation instance or class to query.
-            device_operands: Optional ordered tuple of physical labels.
-
-        Raises:
-            TypeError: If ``op`` or explicit operands are invalid.
-        """
-        if device_operands is not None:
-            return (
-                self.implementation_for(op, device_operands=device_operands) is not None
-            )
-        return self._registry.supports(op)
-
-    def implementation_for(
-        self,
-        op: Operation | type[Operation],
-        *,
-        device_operands: DeviceOperands | None = None,
-    ) -> Callable[..., PulseDefinition] | None:
-        """Return the pulse implementation for an operation.
-
-        Without ``device_operands``, this returns only a general rule. With
-        operands, it returns the rule for that tuple or a general rule.
-
-        Args:
-            op: Operation instance or class to query.
-            device_operands: Optional ordered tuple of physical labels.
-
-        Returns:
-            The matching callable, or ``None``.
-
-        Raises:
-            TypeError: If ``op`` or explicit operands are invalid.
-        """
-        return self._registry.get(op, device_operands=device_operands)
+        self._add_unconstrained(op, unconstrained)
 
     def supported_operations(self) -> frozenset[type[Operation]]:
         """Return the operation classes with at least one implementation."""
-        return self._registry.supported_operations()
-
-    def device_operands_for(
-        self, op: Operation | type[Operation]
-    ) -> frozenset[DeviceOperands]:
-        """Return the device-specific operand tuples for an operation.
-
-        The empty set means either that the family is unregistered or that it
-        has one general rule. Use ``supports(op)`` to distinguish those
-        cases.
-
-        Args:
-            op: Operation instance or class to query.
-
-        Raises:
-            TypeError: If ``op`` is not an operation instance or subclass.
-        """
-        return self._registry.device_operands_for(op)
-
-    def remove(self, op: Operation | type[Operation]) -> None:
-        """Remove a registered pulse implementation, if present.
-
-        Removing an operation that was never registered is a no-op.
-
-        Args:
-            op: Operation instance or subclass whose entire family
-                registration is removed.
-
-        Raises:
-            TypeError: If ``op`` is not an operation instance or subclass.
-        """
-        self._registry.remove(op)
-
-    def copy(self) -> "PulseImplementationMap":
-        """Return a copy whose registrations can be changed independently."""
-        clone = PulseImplementationMap()
-        clone._registry = self._registry.copy()
-        return clone
+        return self._registered_types()

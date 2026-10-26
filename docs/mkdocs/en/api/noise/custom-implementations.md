@@ -14,7 +14,7 @@ surface.
 ## Simulator implementation map
 
 
-A [`ChannelImplementationMap`][fatqat.noise.ChannelImplementationMap] rule receives `(channel, *, targets)`,
+A channel rule in [`MatrixImplementationMap`][fatqat.implementation.MatrixImplementationMap] receives `(channel, *, targets)`,
 where `targets` is the ordered tuple of program
 [`RegisterRef`][fatqat.RegisterRef] objects, and returns a nonempty tuple of Kraus
 matrices acting on the combined target space. It represents one finite channel
@@ -38,21 +38,18 @@ inheriting an incompatible numerical rule.
 ## Register and reuse rules
 
 
-The public map class has these registration operations:
+Use the same [implementation map](../implementation.md) for gates, custom
+operations, and channels. `add(ChannelType, rule)` registers a uniform rule;
+`device_operands=` restricts it to an exact ordered device tuple. These are the
+channel's selected targets, which can be a subset of the matching gate's targets.
 
-**Registration operations**
-
-| Method | Contract |
-| --- | --- |
-| [`add`][fatqat.noise.ChannelImplementationMap.add] | Stores the callable for exactly `channel_type`. Adding the type again replaces its rule. FATQAT checks the type and callability immediately, then checks the rule's signature and output when a backend uses it. |
-| [`get`][fatqat.noise.ChannelImplementationMap.get] | Returns the callable registered for exactly that type, or `None`. There is no base-class fallback. |
-| [`supported_channels`][fatqat.noise.ChannelImplementationMap.supported_channels] | Returns an immutable `frozenset` snapshot of the registered types. |
-| [`copy`][fatqat.noise.ChannelImplementationMap.copy] | Returns a map whose registrations can be changed independently. |
+`implementation_for` retrieves a rule, `supported_channels` lists channel types,
+and `copy` makes an independently editable map.
 
 ## Simulator rules
 
 
-A matrix rule returns Kraus operators for the matching operation:
+A channel rule returns Kraus operators for the selected targets:
 
 ```python
 def rule(channel, *, targets):
@@ -66,7 +63,7 @@ structural requirements. It does not verify complete positivity, trace
 preservation, Hermiticity preservation, or any parameter convention for a
 custom rule.
 
-Start with [`default_channel_implementation_map`][fatqat.noise.default_channel_implementation_map] when you want to keep
+Start with [`default_matrix_implementation_map`][fatqat.implementation.default_matrix_implementation_map] when you want to keep
 FATQAT's built-in simulator rules. See [Simulators](backend-support.md#noise-simulator-support) for
 backend limits.
 
@@ -74,7 +71,7 @@ backend limits.
 
 
 This custom qubit channel and rule add bit-flip noise while
-retaining all built-in channel implementations:
+retaining all built-in gate and channel implementations:
 
 ```python
 from dataclasses import dataclass
@@ -82,6 +79,7 @@ from dataclasses import dataclass
 import numpy as np
 import fatqat as fq
 import fatqat.operations as ops
+from fatqat.implementation import default_matrix_implementation_map
 
 
 @dataclass(frozen=True)
@@ -106,15 +104,15 @@ def bit_flip_rule(channel, *, targets):
     return np.sqrt(1 - channel.p) * identity, np.sqrt(channel.p) * x
 
 
-channel_map = fq.noise.default_channel_implementation_map()
-channel_map.add(BitFlip, bit_flip_rule)
+implementations = default_matrix_implementation_map()
+implementations.add(BitFlip, bit_flip_rule)
 
 noise = fq.NoiseModel()
 noise.add(BitFlip(p=0.05), operation=ops.X)
 backend = fq.simulator.Simulator(
     method="density_matrix",
     noise=noise,
-    channel_implementation_map=channel_map,
+    implementation_map=implementations,
 )
 ```
 
@@ -140,13 +138,3 @@ backend = fq.simulator.Simulator(
       filters:
         - "!^_"
         - "^(?:__call__)$"
-
-::: fatqat.noise.ChannelImplementationMap
-    options:
-      inherited_members: true
-      show_bases: false
-      merge_init_into_class: false
-      filters:
-        - "!^_"
-
-::: fatqat.noise.default_channel_implementation_map

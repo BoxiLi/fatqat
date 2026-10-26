@@ -36,14 +36,12 @@ from ..implementation import MatrixImplementationMap, default_matrix_implementat
 from ..job import Job
 from ..noise import (
     AmplitudeDamping,
-    ChannelImplementationMap,
     Depolarizing,
     PhaseDamping,
     TransitionRelaxation,
     NoiseModel,
     Loss,
     ThermalRelaxation,
-    default_channel_implementation_map,
 )
 from ..observable import Observable
 from ..operations import Barrier, CustomOperation, Measurement, Reset
@@ -187,7 +185,6 @@ class Simulator:
     # silently ignoring it; AtomArraySimulator sets it True.
     _supports_loss: bool = False
 
-    # TODO: merge implementation_map and channel_implementation_map into one
     def __init__(
         self,
         method: str = "statevector",
@@ -195,7 +192,6 @@ class Simulator:
         runtime: str = "numba",
         implementation_map: MatrixImplementationMap | None = None,
         noise: NoiseModel | None = None,
-        channel_implementation_map: ChannelImplementationMap | None = None,
     ) -> None:
         """Create a gate-level simulator.
 
@@ -208,16 +204,13 @@ class Simulator:
                 runtime's threaded and fusion paths. ``"numpy"`` executes the
                 reference kernels directly without JIT warm-up. Both support
                 every method, but are not promised to be bit-identical.
-            implementation_map: Matrix rules and custom-operation implementations.
+            implementation_map: Matrix, channel, and custom-operation implementations.
                 ``None`` uses ``default_matrix_implementation_map()``.
             noise: Noise model applied to every run. ``None`` means ideal
                 execution. The model is copied at construction: ``add()``
                 calls made on the original after the backend is built do not
                 reach this backend - build the backend after the model is
                 complete, or build a new backend.
-            channel_implementation_map: Rules that turn supported channel
-                descriptors into finite channels. ``None`` uses the default
-                channel map.
 
         Raises:
             BackendValidationError: If ``method`` or ``runtime`` is not one
@@ -262,9 +255,6 @@ class Simulator:
             raise BackendValidationError("noise must be a NoiseModel or None")
         source_noise = noise if noise is not None else NoiseModel()
         self._noise_model = source_noise._copy()
-        if channel_implementation_map is None:
-            channel_implementation_map = default_channel_implementation_map()
-        self._channel_map = channel_implementation_map.copy()
         self.validate_noise_model(self._noise_model)
         # The engine object and its dimension-dependent numeric caches are
         # reused, while every execution allocates or resets evolving state.
@@ -1478,7 +1468,6 @@ class Simulator:
                             classical_allocation,
                             self._impl_map,
                             self._noise_model,
-                            self._channel_map,
                             param_order=param_order,
                         )
                     )
@@ -1614,7 +1603,7 @@ class Simulator:
                     "finite AmplitudeDamping or probability-form "
                     "TransitionRelaxation and PhaseDamping channels instead",
                 )
-            elif self._channel_map.get(channel_type) is None:
+            elif not self._impl_map.supports(channel_type):
                 rejection_reasons.append(
                     f"{label} has no channel implementation on this backend",
                 )

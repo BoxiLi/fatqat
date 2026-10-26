@@ -388,6 +388,30 @@ def test_shared_map_resolves_device_specific_custom_implementations():
         simulator.run(unsupported)
 
 
+def test_one_map_resolves_gates_custom_operations_and_device_channel_rules():
+    implementations = default_matrix_implementation_map()
+    channel = fq.noise.PauliChannel({"X": 1.0})
+    channel_rule = implementations.implementation_for(channel)
+    implementations.remove(type(channel))
+    implementations.add(channel, channel_rule, device_operands=(0,))
+    implementations.add(Prepare, PrepareImplementation())
+    noise = fq.NoiseModel()
+    noise.add(channel, operation=ops.X)
+    simulator = Simulator(implementation_map=implementations, noise=noise)
+
+    def program_on(target):
+        program = fq.Program(2, 1)
+        program.add(Prepare(), target)
+        program.add(ops.X, target)
+        program.measure(target, 0)
+        return program
+
+    # Device label 0 is quantum index 1; channel lookup must use the device label.
+    assert simulator.run(program_on(0), shots=4).result().get_counts() == {"1": 4}
+    with pytest.raises(UnsupportedOperationError, match=r"device operands \(1,\)"):
+        simulator.run(program_on(1), shots=4)
+
+
 def test_run_rejects_invalid_initial_occupancy():
     program = fq.Program(1, 1)
     program.measure(0, 0)

@@ -133,8 +133,7 @@ class ApplyChannelStep:
     Attributes:
         kraus_ops: Resolved Kraus operators. Lowering validates shapes
             only; complete positivity / trace preservation of custom
-            rules is deliberately not checked (see
-            `fatqat.noise.ChannelImplementationMap`).
+            rules is deliberately not checked.
         target_indices: Flat subsystem indices the channel acts on.
         condition: The parent gate's lowered feedforward guard. A channel
             models its gate's noise, so when the guard skips the gate it

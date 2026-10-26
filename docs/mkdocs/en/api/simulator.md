@@ -124,9 +124,8 @@ The constructor also accepts:
 
 | Argument | Meaning |
 | --- | --- |
-| `implementation_map` | Matrix rules and [custom-operation implementations](simulators/custom-operations.md). `None` uses FATQAT's built-in gate set. |
+| `implementation_map` | Matrix, channel, and [custom-operation implementations](simulators/custom-operations.md). `None` uses FATQAT's built-in rules. |
 | `noise` | A [`NoiseModel`][fatqat.NoiseModel] used by every run. `None` is ideal. |
-| `channel_implementation_map` | Rules that turn supported channel descriptors into finite channels. `None` uses FATQAT's built-in rules. |
 
 ## Run inputs and results
 

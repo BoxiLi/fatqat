@@ -1,4 +1,4 @@
-"""Factory for FATQAT's built-in gate-matrix rules."""
+"""Built-in matrix and channel implementation rules."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .base import (
     _KeyedImplementation,
     _wrap_rule,
 )
-from ._operation_registry import _resolve_operation_class
+from ._base_map import _resolve_operation_class
 from .matrices import (
     _CCX,
     _CS,
@@ -95,17 +95,43 @@ _DEFAULT_RULES = (
 
 
 def default_matrix_implementation_map() -> MatrixImplementationMap:
-    """Return a new map containing FATQAT's built-in matrix gate rules.
+    """Return a new map containing built-in matrix gates and finite channel rules.
 
     Each call returns an independent map. Add, replace, or remove rules on the
     returned value without changing later calls or another backend's map.
 
     Returns:
-        A matrix implementation map covering the built-in matrix operations
-        exported by `fatqat.operations`.
+        An implementation map covering built-in matrix operations and the
+        Depolarizing, AmplitudeDamping, PhaseDamping, PauliChannel, and
+        TransitionRelaxation channels.
     """
     m = MatrixImplementationMap()
+    _add_default_channel_rules(m)
     for op, rule, key in _DEFAULT_RULES:
         op_cls = _resolve_operation_class(op)
         m.add(op, _KeyedImplementation(_wrap_rule(op_cls, rule), key))
     return m
+
+
+def _add_default_channel_rules(implementations: MatrixImplementationMap) -> None:
+    """Include the standard finite channels in a simulator profile's map."""
+    from ..noise.catalog import (
+        AmplitudeDamping,
+        Depolarizing,
+        PauliChannel,
+        PhaseDamping,
+        amplitude_damping_rule,
+        depolarizing_rule,
+        pauli_channel_rule,
+        phase_damping_rule,
+    )
+    from ..noise.transition_relaxation import (
+        TransitionRelaxation,
+        transition_relaxation_rule,
+    )
+
+    implementations.add(Depolarizing, depolarizing_rule)
+    implementations.add(AmplitudeDamping, amplitude_damping_rule)
+    implementations.add(PhaseDamping, phase_damping_rule)
+    implementations.add(PauliChannel, pauli_channel_rule)
+    implementations.add(TransitionRelaxation, transition_relaxation_rule)

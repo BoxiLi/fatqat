@@ -18,7 +18,7 @@ from ..errors import (
     UnsupportedOperationError,
 )
 from ..implementation import MatrixImplementation, MatrixImplementationMap
-from ..implementation._operation_registry import _select_implementation
+from ..implementation._base_map import _select_implementation
 from ..implementation.matrices import (
     _H,
     _SDG,
@@ -32,7 +32,7 @@ from ..implementation.matrices import (
     _subspace_rz_batch,
     _u_matrix_batch,
 )
-from ..noise import ChannelImplementationMap, NoiseModel
+from ..noise import NoiseModel
 from ..noise.base import _validate_kraus_shapes
 from .. import operations as ops
 from ..operations import Measurement, Operation, PulseOperation
@@ -275,7 +275,7 @@ def _lower_channels(
     resource_layout: ResourceLayout,
     engine_allocation: _EngineAllocation,
     noise_model: NoiseModel,
-    channel_map: ChannelImplementationMap,
+    impl_map: MatrixImplementationMap,
 ) -> list[ResolvedStep]:
     """Lower the channel noise attached to one occurrence into steps.
 
@@ -302,12 +302,10 @@ def _lower_channels(
                 )
             )
             continue
-        channel_rule = channel_map.get(type(channel))
-        if channel_rule is None:
-            raise UnsupportedOperationError(
-                f"{type(channel).__name__} has no channel "
-                "implementation on this backend"
-            )
+        device_operands = tuple(
+            resource_layout.device_label(target) for target in extent
+        )
+        channel_rule = _select_implementation(channel, device_operands, impl_map)
         kraus_ops = tuple(channel_rule(channel, targets=extent))
         extent_dim = prod(
             engine_allocation.system_dims[index] for index in extent_indices
@@ -330,7 +328,6 @@ def _lower_gate(
     classical_allocation: _ClassicalAllocation,
     impl_map: MatrixImplementationMap,
     noise_model: NoiseModel,
-    channel_map: ChannelImplementationMap,
     *,
     param_order: tuple[Parameter, ...] | None = None,
 ) -> list[ResolvedStep | _MatrixRecipe]:
@@ -416,7 +413,7 @@ def _lower_gate(
             resource_layout,
             engine_allocation,
             noise_model,
-            channel_map,
+            impl_map,
         )
     )
     return steps

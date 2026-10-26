@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from .. import operations as ops
 from .._backends.backend_utils import _canonicalize_method
 from ..errors import BackendValidationError, UnsupportedOperationError
+from ..implementation.registry import _add_default_channel_rules
 from ..implementation import (
     MatrixImplementationMap,
     default_matrix_implementation_map,
@@ -69,6 +70,7 @@ def _fake_atom_array_implementation_map() -> MatrixImplementationMap:
     cz_rule = defaults.implementation_for(ops.CZ)
 
     m = MatrixImplementationMap()
+    _add_default_channel_rules(m)
     m.add(ops.RX, rx_rule)
     m.add(ops.RY, ry_rule)
     m.add(ops.RZ, rz_rule)
@@ -245,7 +247,7 @@ class AtomArraySimulator(Simulator):
                         resource_layout,
                         context.engine_allocation,
                         self._noise_model,
-                        self._channel_map,
+                        self._impl_map,
                     )
                 )
                 connectivity = self._apply_pairing(connectivity, step)

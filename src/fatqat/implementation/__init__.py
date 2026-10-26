@@ -1,6 +1,6 @@
-"""Matrix rules and joint custom operations for gate-level simulators.
+"""Matrix, channel, and custom-operation rules for gate-level simulators.
 
-Use `default_matrix_implementation_map` to copy FATQAT's built-in gate rules,
+Use `default_matrix_implementation_map` to copy FATQAT's built-in gate and channel rules,
 or create an empty `MatrixImplementationMap` for a backend that supports only
 the rules you add. Rules may be fixed matrices, callables, or configured
 `MatrixImplementation` objects. CustomOperation descriptions use

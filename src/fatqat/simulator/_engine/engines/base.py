@@ -326,7 +326,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         self.configure_system(context.system_dims, context.n_clbits)
         with self._execution_scope(policy):
             state_requested = context.request.final_state
-            rows = None
+            outcomes = None
             if policy.execution_path == "per_shot":
                 rows = self._run_per_shot(
                     payload,
@@ -334,6 +334,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                     initial_state,
                     state_requested=state_requested,
                 )
+                outcomes = reduce_to_counts(rows) if rows is not None else None
             else:
                 rng = np.random.default_rng(context.seed)
                 self.initialize(
@@ -353,16 +354,14 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                 else:
                     assert policy.execution_path == "single_pass"
                     assert self._evolution_state is not None
-                    rows = _run_single_pass(
+                    outcomes = _run_single_pass(
                         payload,
                         self._evolution_state,
                         context,
                         rng,
                         state_requested=state_requested,
                     )
-            outcome_keys, outcome_counts = (
-                reduce_to_counts(rows) if rows is not None else (None, None)
-            )
+            outcome_keys, outcome_counts = outcomes or (None, None)
             state = self.export_state() if state_requested else None
             return RawResult(
                 outcome_keys=outcome_keys, outcome_counts=outcome_counts, state=state

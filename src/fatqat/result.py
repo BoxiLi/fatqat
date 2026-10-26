@@ -69,8 +69,13 @@ def _decode_engine_indices_to_clbit_rows(
 
 def reduce_to_counts(
     rows: Iterable[Sequence[int]] | np.ndarray,
+    row_counts: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Reduce per-shot clbit rows to distinct rows and counts."""
+    """Reduce clbit rows to distinct rows and counts.
+
+    ``row_counts`` gives the number of shots each row stands for; by default
+    every row is one shot.
+    """
     row_array = np.asarray(rows, dtype=int)
     if row_array.ndim == 1:
         row_array = (
@@ -80,7 +85,19 @@ def reduce_to_counts(
         )
     if row_array.shape[0] == 0:
         return row_array, np.zeros(0, dtype=int)
-    return np.unique(row_array, axis=0, return_counts=True)
+    # Row-wise `np.unique` compares rows field by field. Viewing each row of
+    # one-byte digits as a single byte string gives the same lexicographic
+    # order while sorting a flat array. Keys come from the original rows.
+    if row_array.size == 0 or row_array.min() < 0 or row_array.max() > 255:
+        _keys, first, inverse = np.unique(
+            row_array, axis=0, return_index=True, return_inverse=True
+        )
+    else:
+        digits = np.ascontiguousarray(row_array, dtype=np.uint8)
+        keys = digits.view(np.dtype((np.void, digits.shape[1]))).ravel()
+        _keys, first, inverse = np.unique(keys, return_index=True, return_inverse=True)
+    counts = np.bincount(inverse.ravel(), weights=row_counts, minlength=len(first))
+    return row_array[first], counts.astype(int)
 
 
 def counts_dict_from_arrays(
@@ -89,8 +106,8 @@ def counts_dict_from_arrays(
 ) -> dict[tuple[int, ...], int]:
     """Package engine count arrays into the public tuple-keyed dict shape."""
     return {
-        tuple(int(k) for k in row): int(count)
-        for row, count in zip(outcome_keys, outcome_counts)
+        tuple(row): count
+        for row, count in zip(outcome_keys.tolist(), outcome_counts.tolist())
     }
 
 

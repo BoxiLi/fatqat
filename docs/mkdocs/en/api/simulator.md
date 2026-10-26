@@ -124,9 +124,8 @@ The constructor also accepts:
 
 | Argument | Meaning |
 | --- | --- |
-| `implementation_map` | Matrix rules for operations. `None` uses FATQAT's built-in gate set. |
+| `implementation_map` | Matrix, channel, and [custom-operation implementations](simulators/custom-operations.md). `None` uses FATQAT's built-in rules. |
 | `noise` | A [`NoiseModel`][fatqat.NoiseModel] used by every run. `None` is ideal. |
-| `channel_implementation_map` | Rules that turn supported channel descriptors into finite channels. `None` uses FATQAT's built-in rules. |
 
 ## Run inputs and results
 
@@ -139,10 +138,12 @@ Besides `simulation_config`, [`Simulator.run`][fatqat.simulator.Simulator.run] a
 | --- | --- | --- |
 | `shots` | `1024` | Samples used for counts or a stochastic final state. A deterministic state-only or operator result does not use this value. |
 | `resource_layout` | `None` | Assigns every program quantum reference to a device label. The generic simulator uses integer labels in declaration order. A supplied layout must be complete, one-to-one, and compatible with the backend. |
-| `initial_state` | `None` | Starts every shot from this state rather than the all-zero state. It uses the public most-significant-first basis. `statevector` accepts shape `(D,)`; `density_matrix` accepts `(D,)` or `(D, D)`. Operator methods reject it. |
+| `initial_state` | `None` | Quantum array or [`EvolutionState`][fatqat.simulator.EvolutionState] supplying quantum and classical data for each shot. `None` selects the ground state. Operator methods reject an initial state. |
 
-Only the initial state's shape is checked. You are responsible for
-normalization and, for density matrices, Hermiticity and positivity.
+Quantum input uses the public most-significant-first basis. `statevector` accepts
+shape `(D,)`; `density_matrix` accepts `(D,)` or `(D, D)`. Only the quantum shape is
+checked; you are responsible for normalization and, for density matrices,
+Hermiticity and positivity.
 
 `result_config` has two keys. Each accepts `True`, `False`, or `None`;
 an omitted or `None` value uses the default shown below.

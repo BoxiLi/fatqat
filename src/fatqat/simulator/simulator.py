@@ -6,8 +6,8 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from typing import Any
 
@@ -36,17 +36,15 @@ from ..implementation import MatrixImplementationMap, default_matrix_implementat
 from ..job import Job
 from ..noise import (
     AmplitudeDamping,
-    ChannelImplementationMap,
     Depolarizing,
     PhaseDamping,
     TransitionRelaxation,
     NoiseModel,
     Loss,
     ThermalRelaxation,
-    default_channel_implementation_map,
 )
 from ..observable import Observable
-from ..operations import Barrier, Measurement, Reset
+from ..operations import Barrier, CustomOperation, Measurement, Reset
 from ..parameters import Parameter, ParameterVector
 from ..program import Program, _AppliedOperation
 from ..registers import RegisterRef
@@ -65,18 +63,19 @@ from .._backends.backend_utils import (
     _validate_result_shots,
 )
 from . import planning
+from ._engine.state import EvolutionState
 from ._execution_contract import (
-    _ExecutionContext,
+    _RunContext,
     _PlanFacts,
     RawResult,
     _ResultRequest,
     _SimulationConfig,
-    _InitialEvolutionState,
 )
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
 from .._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    CustomOperationStep,
     MeasurementStep,
     ResetStep,
     ResolvedStep,
@@ -124,7 +123,7 @@ class _PreparedExecution:
     facts: _PlanFacts
     lowering: _LoweringContext
     simulation: _SimulationConfig
-    initial_state: _InitialEvolutionState[Any]
+    initial_state: EvolutionState[Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +192,6 @@ class Simulator:
         runtime: str = "numba",
         implementation_map: MatrixImplementationMap | None = None,
         noise: NoiseModel | None = None,
-        channel_implementation_map: ChannelImplementationMap | None = None,
     ) -> None:
         """Create a gate-level simulator.
 
@@ -206,16 +204,13 @@ class Simulator:
                 runtime's threaded and fusion paths. ``"numpy"`` executes the
                 reference kernels directly without JIT warm-up. Both support
                 every method, but are not promised to be bit-identical.
-            implementation_map: Matrix rules for supported operations.
+            implementation_map: Matrix, channel, and custom-operation implementations.
                 ``None`` uses ``default_matrix_implementation_map()``.
             noise: Noise model applied to every run. ``None`` means ideal
                 execution. The model is copied at construction: ``add()``
                 calls made on the original after the backend is built do not
                 reach this backend - build the backend after the model is
                 complete, or build a new backend.
-            channel_implementation_map: Rules that turn supported channel
-                descriptors into finite channels. ``None`` uses the default
-                channel map.
 
         Raises:
             BackendValidationError: If ``method`` or ``runtime`` is not one
@@ -260,9 +255,6 @@ class Simulator:
             raise BackendValidationError("noise must be a NoiseModel or None")
         source_noise = noise if noise is not None else NoiseModel()
         self._noise_model = source_noise._copy()
-        if channel_implementation_map is None:
-            channel_implementation_map = default_channel_implementation_map()
-        self._channel_map = channel_implementation_map.copy()
         self.validate_noise_model(self._noise_model)
         # The engine object and its dimension-dependent numeric caches are
         # reused, while every execution allocates or resets evolving state.
@@ -450,12 +442,22 @@ class Simulator:
         """Lower once for a sweep, deferring parameter-holding gates.
 
         The sweep counterpart of ``_prepare_program``: the same single lowering
-        pass and plan-fact analysis, but parameter-holding gates become
-        `planning._MatrixRecipe`s inside a `planning._ParametricPlan` that
+        pass and plan-fact analysis, but parameter-holding operations become
+        matrix recipes inside a `planning._ParametricPlan` that
         ``run_sweep`` materializes once per θ row. Plan facts read only step
         kinds, indices and conditions, so they are valid for every row.
         """
         operations = _break_grouped_operations(program._instructions)
+        # pylint: disable-next=fixme
+        # TODO: Support custom operations in run_sweep.
+        if any(
+            isinstance(step, _AppliedOperation)
+            and isinstance(step.operation, CustomOperation)
+            for step in operations
+        ):
+            raise UnsupportedOperationError(
+                "run_sweep does not support custom operations"
+            )
         steps = tuple(self._lower(operations, context, param_order=param_order))
         return planning._ParametricPlan(steps, param_order), self._analyze_lowered_plan(
             steps
@@ -487,13 +489,14 @@ class Simulator:
                 to a device label. It must be complete, one-to-one, and
                 compatible with the backend. The documented backend default
                 is used when omitted.
-            initial_state: Optional state to start every shot from instead of
-                the all-zero computational state. A statevector run takes a
-                ``(D,)`` vector; a density-matrix run takes ``(D, D)``, or a
-                ``(D,)`` ket interpreted as a pure state. Only shape is
-                validated. Basis indices use public most-significant-first
-                subsystem order; no basis-order permutation is applied.
-                Operator methods reject an initial state.
+            initial_state: Quantum array or ``EvolutionState`` supplying quantum
+                and classical data for every shot. None selects the ground state;
+                see ``EvolutionState`` for classical defaults and shot independence.
+                Statevector execution accepts shape ``(D,)``; density-matrix
+                execution accepts ``(D, D)`` or a ``(D,)`` ket. Arrays use public
+                most-significant-first basis order. Only the quantum shape is
+                validated, not normalization or physical validity. Operator
+                methods reject an initial state.
                 Shape errors raise directly. Runtime array-conversion failures
                 follow ``error_handling``.
             simulation_config: Optional per-run execution controls. String
@@ -505,11 +508,7 @@ class Simulator:
                   execution and follows ``error_handling``. A
                   fixed seed reproduces counts only for the same method,
                   runtime, shot count, parallelism settings, and result
-                  requests: on the numba runtime, channel-noise runs select
-                  mathematically equal but numerically distinct samplers
-                  depending on shot count, ``shot_parallelism``, and whether
-                  a final state is requested, so knife-edge draws can differ
-                  across those settings.
+                  requests.
                 - ``"shot_parallelism"`` (``str``, default ``"auto"``): How
                   independent shots run: ``"auto"``, ``"serial"``,
                   ``"threads"``, or ``"processes"``. Explicit parallel modes
@@ -603,11 +602,7 @@ class Simulator:
         Single parameters accept shape ``(N,)`` and parameter vectors of
         length ``M`` accept shape ``(N, M)``. All entries must use the same
         ``N``. Rows run in input order with the same options. The batch is
-        validated once and the program is lowered once; every row then replays
-        the lowered plan with its own θ values substituted into the deferred
-        (parameter-holding) gates, so per-row cost is those gates' matrix
-        realizations plus execution - layout resolution, implementation
-        selection, and noise matching are not repeated per row. One explicit
+        validated before execution. One explicit
         seed is reused for every row, so sampled row errors can be correlated.
         Binding and row-validation errors raise directly. Execution errors
         follow ``run()``'s error-handling policy; no partial list is exposed.
@@ -620,9 +615,8 @@ class Simulator:
             resource_layout: Complete, one-to-one assignment of program
                 quantum references to compatible device labels, reused for
                 every row. The backend default is used when omitted.
-            initial_state: Optional starting state reused for every row. The
-                same public basis order, shape, and method rules as ``run()``
-                apply; the array is not permuted between sweep points.
+            initial_state: Quantum array or ``EvolutionState`` used to initialize
+                every shot in every row, following the same rules as ``run()``.
             simulation_config: Controls reused for every row. Accepted keys:
 
                 - ``"seed"`` (``int | None``, default ``None``): Use a
@@ -674,8 +668,8 @@ class Simulator:
                 fails normal Simulator validation.
             MatrixImplementationError: If a matrix rule cannot build an
                 operation for one row.
-            UnsupportedOperationError: If a row contains an operation the
-                backend cannot run.
+            UnsupportedOperationError: If the program contains custom operations
+                or a row contains an operation the backend cannot run.
 
         Examples:
             Sweep one angle and request the final state from every row:
@@ -735,7 +729,7 @@ class Simulator:
         *,
         shots: int,
         result_config: dict[str, Any] | None,
-    ) -> tuple[_ResultConfig, _ExecutionContext]:
+    ) -> tuple[_ResultConfig, _RunContext]:
         """Resolve direct results and shot requirements before execution.
 
         Called once per run or sweep batch on the direct-raise validation path.
@@ -749,7 +743,7 @@ class Simulator:
             backend_name=type(self).__name__,
         )
         request = self._validate_run_request(config, shots, execution.facts)
-        context = _ExecutionContext(
+        context = _RunContext(
             request=request,
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
@@ -785,8 +779,11 @@ class Simulator:
         resource_layout = self._resolve_resource_layout(program, resource_layout)
         engine_allocation = self._allocate_engine_indices(program, resource_layout)
         classical_allocation = _ClassicalAllocation.from_program(program)
-        initial_state = self._validate_initial_state(
-            initial_state, tuple(reversed(engine_allocation.system_dims))
+        initial_state = self._prepare_initial_state(initial_state)
+        self._validate_initial_state(
+            initial_state,
+            tuple(reversed(engine_allocation.system_dims)),
+            classical_allocation.n_clbits,
         )
         # Selector-identity validation runs immediately after the effective
         # resource layout is known and before any lowering/plan step is built.
@@ -813,14 +810,26 @@ class Simulator:
             facts=facts,
             lowering=lowering,
             simulation=simulation,
-            initial_state=self._prepare_initial_state(initial_state),
+            initial_state=initial_state,
         )
         self._validate_engine_support(prepared)
         return prepared
 
-    def _prepare_initial_state(self, quantum: Any) -> _InitialEvolutionState[Any]:
-        """Wrap quantum input; subclasses supply classical components."""
-        return _InitialEvolutionState(quantum=quantum)
+    def _prepare_initial_state(self, initial: Any) -> EvolutionState[Any]:
+        """Snapshot public evolution data; preserve quantum-only input support."""
+        # pylint: disable-next=fixme
+        # TODO: clean this up, being an operator engine does not inherently rule out custom behavior.
+        if initial is not None and self._engine.capabilities.quantum.is_operator:
+            raise BackendValidationError(
+                f"initial_state is not meaningful for method={self._state_field!r}, "
+                "which computes the program's map rather than a state evolving "
+                "under it. Use method='statevector' or method='density_matrix'"
+            )
+        if isinstance(initial, EvolutionState):
+            return EvolutionState(
+                quantum=initial.quantum, classical=deepcopy(initial.classical)
+            )
+        return EvolutionState(quantum=initial)
 
     def _run_expectation(
         self,
@@ -837,6 +846,12 @@ class Simulator:
             initial_state=None,
             simulation_config=simulation_config,
         )
+        # pylint: disable-next=fixme
+        # TODO: Support custom operations
+        if any(isinstance(step, CustomOperationStep) for step in execution.plan):
+            raise UnsupportedOperationError(
+                "expectation values are not supported for custom operations"
+            )
         constants, bound_occurrences = self._prepare_expectation(
             execution, program, observables, shots=shots
         )
@@ -969,11 +984,11 @@ class Simulator:
     def _execute_expectation_base(
         self,
         execution: _PreparedExecution,
-    ) -> _InitialEvolutionState:
+    ) -> EvolutionState:
         """Execute once and retain quantum and classical initialization together."""
         plan = execution.plan
         assert isinstance(plan, tuple)
-        context = _ExecutionContext(
+        context = _RunContext(
             request=_ResultRequest(counts=False, final_state=True),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
@@ -1007,7 +1022,7 @@ class Simulator:
                 (bound.occurrence.coefficient, bound.engine_factors)
             )
         has_terms = bool(bound_occurrences)
-        context = _ExecutionContext(
+        context = _RunContext(
             request=_ResultRequest(counts=False, final_state=has_terms),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
@@ -1056,10 +1071,10 @@ class Simulator:
                     initial,
                     classical=replace(
                         initial.classical,
-                        clbits=clbits + (0,) * len(bound.engine_factors),
+                        clbits=clbits + [0] * len(bound.engine_factors),
                     ),
                 )
-            context = _ExecutionContext(
+            context = _RunContext(
                 request=request,
                 system_dims=tuple(execution.lowering.engine_allocation.system_dims),
                 n_clbits=(
@@ -1097,7 +1112,7 @@ class Simulator:
         plan: tuple[ResolvedStep, ...],
         execution: _PreparedExecution,
         config: _ResultConfig,
-        context: _ExecutionContext,
+        context: _RunContext,
     ) -> Job[Result]:
         """Execute one concrete plan under already-validated run settings.
 
@@ -1118,7 +1133,6 @@ class Simulator:
                 config=config,
                 simulation=execution.simulation,
                 lowering=execution.lowering,
-                written_clbits=execution.facts.written_clbits,
                 request=context.request,
                 shots=context.shots,
             )
@@ -1130,43 +1144,56 @@ class Simulator:
 
     # --- validation (raises directly from run) ---
     def _validate_initial_state(
-        self, initial_state: Any, system_dims: tuple[int, ...]
-    ) -> Any:
-        """Check input shape without converting it to runtime storage.
+        self,
+        initial_state: EvolutionState,
+        system_dims: tuple[int, ...],
+        n_clbits: int,
+    ) -> None:
+        """Check quantum shape and engine-owned classical fields.
 
-        Array inputs expose shape metadata directly; sequences use NumPy shape
-        inference. Runtime initialization owns dtype conversion and copying.
-
-        Only the *shape* is checked. Normalization, hermiticity and positivity
-        are deliberately not enforced, because nothing downstream relies on
-        them: sampling derives its distribution defensively - a statevector run
-        divides ``|psi|**2`` by its own sum, and a density-matrix run clips the
-        diagonal at zero before doing the same - so an unusual operator evolves
-        and samples without special handling. Refusing one would only stop
-        somebody running the same arithmetic on a matrix we have no reason to
-        object to, and there is no Hermitian-only optimization here that would
-        make the refusal honest.
-
-        One consequence worth knowing: given an unnormalized input, an exported
-        final state is faithfully unnormalized while counts come from the
-        normalized distribution. Both are self-consistent; they answer
-        different questions.
-
-        Operator methods are rejected. ``unitary`` and ``superop`` compute the
-        program's map rather than a state evolving under it, so there is
-        nothing for a starting state to be.
+        Runtime initialization handles quantum conversion and per-shot copying.
         """
-        if initial_state is None:
-            return None
-        if self._engine.capabilities.quantum.is_operator:
-            raise BackendValidationError(
-                f"initial_state is not meaningful for method={self._state_field!r}, "
-                "which computes the program's map rather than a state evolving "
-                "under it. Use method='statevector' or method='density_matrix'"
-            )
-        shape = getattr(initial_state, "shape", None)
+        classical = initial_state.classical
+        capabilities = self._engine.capabilities
+        if classical.clbits is not None:
+            if not capabilities.supports_classical_register:
+                raise BackendValidationError(
+                    "engine does not support initial classical digits"
+                )
+            if len(classical.clbits) != n_clbits:
+                raise BackendValidationError(
+                    f"initial classical register has {len(classical.clbits)} digits; expected {n_clbits}"
+                )
+            if any(
+                not isinstance(digit, (int, np.integer))
+                or isinstance(digit, bool)
+                or not 0 <= digit <= np.iinfo(np.int64).max
+                for digit in classical.clbits
+            ):
+                raise BackendValidationError(
+                    "initial classical digits must be non-negative int64 integers"
+                )
+        if classical.occupied is not None:
+            if not capabilities.supports_occupancy:
+                raise BackendValidationError(
+                    f"method={self._state_field!r} cannot track carrier occupancy; "
+                    "the selected engine has no occupancy state"
+                )
+            if any(
+                isinstance(index, (bool, np.bool_))
+                or not isinstance(index, (int, np.integer))
+                or not 0 <= index < len(system_dims)
+                for index in classical.occupied
+            ):
+                raise BackendValidationError(
+                    "initial occupancy contains an invalid subsystem index"
+                )
+        quantum = initial_state.quantum
+        if quantum is None:
+            return
+        shape = getattr(quantum, "shape", None)
         if shape is None:
-            shape = np.shape(initial_state)
+            shape = np.shape(quantum)
         shape = tuple(shape)
         size = 1
         for dimension in system_dims:
@@ -1185,7 +1212,6 @@ class Simulator:
                 f"subsystem dimensions {tuple(system_dims)}, so "
                 f"method={self._state_field!r} needs {expected}"
             )
-        return initial_state
 
     def _validate_run_request(
         self, config: _ResultConfig, shots: int, facts: _PlanFacts
@@ -1264,6 +1290,13 @@ class Simulator:
             )
         # Engine method support, such as measurement, reset, channel noise, and classical register.
         method = self._state_field
+        if capabilities.quantum.is_operator:
+            plan = execution.plan
+            steps = plan.steps if isinstance(plan, planning._ParametricPlan) else plan
+            if any(isinstance(step, CustomOperationStep) for step in steps):
+                raise UnsupportedOperationError(
+                    "custom operations require statevector or density_matrix execution"
+                )
         if facts.has_measurement and not capabilities.supports_classical_register:
             if not capabilities.quantum.is_operator:
                 raise BackendValidationError(
@@ -1295,10 +1328,6 @@ class Simulator:
                 "represent a non-unitary map (use method='superop' for the "
                 "program's channel)"
             )
-        execution.initial_state.classical.validate(
-            capabilities=capabilities,
-            n_clbits=execution.lowering.classical_allocation.n_clbits,
-        )
 
     # --- execution ---
     def _assemble_result(
@@ -1308,7 +1337,6 @@ class Simulator:
         config: _ResultConfig,
         simulation: _SimulationConfig,
         lowering: _LoweringContext,
-        written_clbits: frozenset[int],
         request: _ResultRequest,
         shots: int,
     ) -> Result:
@@ -1316,7 +1344,6 @@ class Simulator:
         engine_allocation = lowering.engine_allocation
         classical_allocation = lowering.classical_allocation
         classical_dims = classical_allocation.classical_dims
-        n_clbits = classical_allocation.n_clbits
         counts = None
         state = raw.state
         state_requested = request.final_state
@@ -1326,15 +1353,6 @@ class Simulator:
             available.add("counts")
         if state_requested:
             available.add(self._state_field)
-
-        # Counts produced, some clbit never written, no state.
-        if request.counts and self._state_field not in available:
-            if any(c not in written_clbits for c in range(n_clbits)):
-                warnings.warn(
-                    "counts contain clbits that were never measured; "
-                    "returning zero-filled counts",
-                    stacklevel=3,
-                )
 
         extra_data = self._additional_result_data(
             config=config,
@@ -1453,7 +1471,6 @@ class Simulator:
                             classical_allocation,
                             self._impl_map,
                             self._noise_model,
-                            self._channel_map,
                             param_order=param_order,
                         )
                     )
@@ -1461,7 +1478,8 @@ class Simulator:
         return plan
 
     def _analyze_lowered_plan(
-        self, plan: Sequence[ResolvedStep | planning._MatrixRecipe]
+        self,
+        plan: Sequence[ResolvedStep | planning._MatrixRecipe],
     ) -> _PlanFacts:
         """Translate one lowered plan into common execution semantics."""
         return self._analyze_common_plan_facts(plan)
@@ -1474,7 +1492,6 @@ class Simulator:
     ) -> _PlanFacts:
         """Exhaustively derive runtime-independent matrix execution semantics."""
         quantum = self._engine.capabilities.quantum
-        written_clbits: set[int] = set()
         stochastic_final_state = False
         has_measurement = False
         has_reset = False
@@ -1491,10 +1508,13 @@ class Simulator:
             if isinstance(step, MeasurementStep):
                 has_measurement = True
                 stochastic_final_state = True
-                written_clbits.update(step.classical_indices)
                 continue
 
             if isinstance(step, (ApplyMatrixStep, planning._MatrixRecipe)):
+                continue
+            if isinstance(step, CustomOperationStep):
+                # Arbitrary callbacks may sample and reset even under DM semantics.
+                stochastic_final_state = True
                 continue
             if isinstance(step, ResetStep):
                 has_reset = True
@@ -1508,7 +1528,6 @@ class Simulator:
                 )
 
         return _PlanFacts(
-            written_clbits=frozenset(written_clbits),
             stochastic_final_state=stochastic_final_state,
             has_measurement=has_measurement,
             has_reset=has_reset,
@@ -1587,7 +1606,7 @@ class Simulator:
                     "finite AmplitudeDamping or probability-form "
                     "TransitionRelaxation and PhaseDamping channels instead",
                 )
-            elif self._channel_map.get(channel_type) is None:
+            elif not self._impl_map.supports(channel_type):
                 rejection_reasons.append(
                     f"{label} has no channel implementation on this backend",
                 )

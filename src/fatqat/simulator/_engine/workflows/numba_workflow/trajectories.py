@@ -22,8 +22,7 @@ from ....._backends.steps import (
 from .....noise.base import _sampled_unitary_branches
 from ._reporting import _report_digit_kernel
 from ...._execution_contract import (
-    _ExecutionContext as ExecutionContext,
-    _InitialEvolutionState as InitialEvolutionState,
+    _RunContext,
 )
 from ...numerics.numba_kernels._apply import _DENSE, _apply_resolved_range
 from ...numerics.numba_kernels._channel import _apply_channel_step, _kraus_stack
@@ -33,7 +32,7 @@ from ...numerics.numba_kernels._measurement import (
     _project_statevector_strided,
     _sv_reset_kernel,
 )
-from ...state import NumbaClassicalState, NumbaEvolutionState
+from ...state import EvolutionState, NumbaClassicalState, NumbaEvolutionState
 
 
 class _NumbaTrajectoryExecution(NamedTuple):
@@ -381,10 +380,10 @@ def _compile_dynamic_plan(
 
 
 def _execute_sv_trajectories(
-    context: ExecutionContext,
+    context: _RunContext,
     compiled: _NumbaTrajectoryExecution,
     *,
-    initial_state: InitialEvolutionState[np.ndarray],
+    initial_state: EvolutionState[np.ndarray],
 ) -> np.ndarray:
     """Return classical shot rows from one compiled multi-shot call."""
     max_draws = compiled.max_draws

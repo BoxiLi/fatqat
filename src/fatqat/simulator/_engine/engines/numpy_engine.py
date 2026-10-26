@@ -64,8 +64,7 @@ from functools import partial
 import numpy as np
 
 from ..._execution_contract import (
-    _ExecutionContext as ExecutionContext,
-    _InitialEvolutionState as InitialEvolutionState,
+    _RunContext,
     _SimulationConfig as SimulationConfig,
     _KernelCapabilities,
     _EngineCapabilities,
@@ -79,6 +78,7 @@ from .._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _plan_python_execution,
 )
+from ..state import EvolutionState
 from .ndarray_engine import _NdarrayEngine
 from ..numerics.numpy_kernels._measurement import (
     _statevector_probabilities,
@@ -135,9 +135,9 @@ class NumpySVEngine(_NdarrayEngine):
         self,
         plan: Sequence[ResolvedStep],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
         return _plan_python_execution(
             plan,
@@ -198,9 +198,9 @@ class NumpyDMEngine(_NdarrayEngine):
         self,
         plan: Sequence[ResolvedStep],
         *,
-        context: ExecutionContext,
+        context: _RunContext,
         simulation_config: SimulationConfig,
-        initial_state: InitialEvolutionState[np.ndarray],
+        initial_state: EvolutionState[np.ndarray],
     ) -> ExecutionPolicy:
         return _plan_python_execution(
             plan,

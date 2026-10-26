@@ -17,6 +17,7 @@ import numpy as np
 from ...._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    CustomOperationStep,
     LossStep,
     MeasurementStep,
     PutStep,
@@ -24,7 +25,8 @@ from ...._backends.steps import (
     ResolvedStep,
 )
 from ....result import _decode_engine_indices_to_clbit_rows
-from ..._execution_contract import _ExecutionContext as ExecutionContext
+from ..._execution_contract import _RunContext
+from ...custom_operations import ExecutionContext
 from ..state import EvolutionState, QuantumDataT
 from ._reporting import (
     ERASURE_DIGIT,
@@ -157,7 +159,7 @@ def _condition_matches(
 def _run_single_pass(
     execution: _PythonExecution,
     state: EvolutionState[QuantumDataT],
-    context: ExecutionContext,
+    context: _RunContext,
     rng: np.random.Generator,
     *,
     state_requested: bool,
@@ -218,13 +220,13 @@ def _run_single_pass(
 def _run_one_shot(
     execution: _PythonExecution,
     state: EvolutionState[QuantumDataT],
-    context: ExecutionContext,
+    context: _RunContext,
     rng: np.random.Generator,
-) -> tuple[int, ...]:
-    """Run one dynamic-path shot and return its final clbit snapshot.
+) -> EvolutionState[QuantumDataT]:
+    """Run one dynamic-path shot and return its final evolution state.
 
-    Shared by local and process-worker batches. Quantum state is accessed only
-    through numerical operations (reset consumes rng only under SV semantics).
+    Shared by local and process-worker batches. Custom implementations may
+    replace the state; built-in operations use the execution's numerical functions.
 
     Classical storage was initialized with the quantum state. Allocate
     report digits only when a measurement or condition needs them.
@@ -234,11 +236,26 @@ def _run_one_shot(
     occupied = classical.occupied
     for step in execution.plan:
         if clbits is None and (
-            isinstance(step, MeasurementStep) or step.condition is not None
+            isinstance(step, (MeasurementStep, CustomOperationStep))
+            or step.condition is not None
         ):
             clbits = [0] * context.n_clbits
             classical.clbits = clbits
-        if isinstance(step, ApplyMatrixStep) and (
+        if isinstance(step, CustomOperationStep):
+            if _condition_matches(step.condition, clbits):
+                custom_context = ExecutionContext(
+                    targets=step.target_indices,
+                    system_dims=context.system_dims,
+                    rng=rng,
+                )
+                state = step.implementation.execute(
+                    step.operation, state, custom_context
+                )
+                # Returned containers can replace every field; do not keep stale aliases.
+                classical = state.classical
+                clbits = classical.clbits
+                occupied = classical.occupied
+        elif isinstance(step, ApplyMatrixStep) and (
             occupied is None or all(t in occupied for t in step.target_indices)
         ):
             if _condition_matches(step.condition, clbits):
@@ -304,8 +321,7 @@ def _run_one_shot(
                 _reset_subsystems(
                     state, execution.reset, context.system_dims, step.reset_indices, rng
                 )
-    # Unwritten report digits are zero even when no register was needed.
-    return tuple(clbits) if clbits is not None else (0,) * context.n_clbits
+    return state
 
 
 def _run_operator_plan(

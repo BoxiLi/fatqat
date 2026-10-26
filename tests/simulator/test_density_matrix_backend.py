@@ -288,18 +288,6 @@ def test_run_rejects_non_dict_result_config():
         Simulator("DM").run(p, result_config=object())
 
 
-def test_unmeasured_clbit_emits_user_warning_when_counts_only_and_no_state():
-    p = Program(1, 1)  # has a clbit, never measured
-    p.add(ops.H, 0)
-    with pytest.warns(UserWarning, match="clbits that were never measured"):
-        Simulator("DM").run(
-            p,
-            shots=10,
-            simulation_config={"seed": 0},
-            result_config={"counts": True, "final_state": False},
-        ).result()
-
-
 def test_qutrit_program_counts_and_state():
     qt = fq.QuantumRegister(1, dim=3)
     program = fq.Program([qt])

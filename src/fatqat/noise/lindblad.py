@@ -35,7 +35,7 @@ class LindbladImplementationMap(_BaseImplementationMap[Callable]):
 
     FATQAT validates only the returned count, array types, and shapes. A custom
     rule is responsible for the physical meaning and units of its operators.
-    Lookup is by exact channel type.
+    Registration and lookup accept channel classes, not instances.
     """
 
     def __init__(self) -> None:

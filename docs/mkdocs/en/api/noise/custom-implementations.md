@@ -11,15 +11,6 @@ or change how a matrix simulator applies an existing type. Pulse-emulator
 continuous-noise realizations are family-owned and are not a public extension
 surface.
 
-## Simulator implementation map
-
-
-A channel rule in [`MatrixImplementationMap`][fatqat.implementation.MatrixImplementationMap] receives `(channel, *, targets)`,
-where `targets` is the ordered tuple of program
-[`RegisterRef`][fatqat.RegisterRef] objects, and returns a nonempty tuple of Kraus
-matrices acting on the combined target space. It represents one finite channel
-application; it is not used as a pulse-emulator Lindblad fallback.
-
 ## Define a custom noise type
 
 
@@ -29,11 +20,8 @@ leave it as `None` to use the matched operation's width, or expose a property
 when the instance determines the width. Treat instances as immutable after
 adding them to a [`NoiseModel`][fatqat.NoiseModel].
 
-The map uses exact concrete types. Given `type(channel) is MyChannel`,
-only a rule registered with `add(MyChannel, rule)` matches. Registering
-`Channel` or another base class does not implement its subclasses. This
-keeps backend support explicit and prevents a new subclass from silently
-inheriting an incompatible numerical rule.
+Register each concrete channel class; a base-class registration does not
+cover subclasses.
 
 ## Register and reuse rules
 
@@ -49,7 +37,9 @@ and `copy` makes an independently editable map.
 ## Simulator rules
 
 
-A channel rule returns Kraus operators for the selected targets:
+A channel rule receives the channel and an ordered tuple of program
+[`RegisterRef`][fatqat.RegisterRef] targets. It returns Kraus operators acting
+on their combined space for one finite channel application:
 
 ```python
 def rule(channel, *, targets):

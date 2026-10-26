@@ -138,6 +138,9 @@ class _BaseImplementationMap(Generic[T]):
     ) -> T | None:
         """Return the matching implementation, or ``None`` if none is registered.
 
+        Lookup uses the exact concrete class; a base-class registration does not
+        cover subclasses. See the map class for accepted key types.
+
         Without ``device_operands``, return only a uniform rule. With operands,
         return the exact device-specific rule, or the family's uniform rule
         when it uses uniform registration.

@@ -357,6 +357,9 @@ def _invoke_pulse_rule(
 class PulseImplementationMap(_BaseImplementationMap[_PulseImplementation]):
     """Map ordinary gates to pulse definitions.
 
+    Registration and lookup accept ``Operation`` instances and subclasses;
+    ``Channel`` keys are not supported.
+
     Direct ``PulseOperation`` values bypass this map because their controls
     already name physical channels.
 

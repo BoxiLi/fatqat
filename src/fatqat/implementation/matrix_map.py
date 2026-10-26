@@ -276,6 +276,7 @@ class MatrixImplementationMap(
 ):
     """Map operation and channel classes to simulator implementations.
 
+    Registration and lookup accept operation or channel instances and classes.
     A new map is empty. Register either one uniform rule or one or more
     device-specific rules for an operation family; the two registration modes
     cannot be mixed for the same operation. ``CustomOperation`` classes require
@@ -302,14 +303,16 @@ class MatrixImplementationMap(
         Args:
             op: Operation or Channel instance or subclass.
                 Instances and their classes select the same operation family.
-            implementation: A `MatrixImplementation`, a NumPy array, or a
-                callable. An array becomes a `FixedMatrix`. A callable is
-                called as `rule(op)` unless it accepts a `targets=` keyword or
-                `**kwargs`; in that case FATQAT calls it as
-                `rule(op, targets=targets)`. A ``CustomOperation`` instead requires
-                a ``CustomOperationImplementation`` with an ``execute`` method.
-                A channel rule is called as ``rule(channel, targets=targets)``
-                and returns a nonempty tuple of Kraus matrices.
+            implementation: The rule for the registered operation or channel:
+
+                - Matrix operation: a `MatrixImplementation`, a NumPy array,
+                  or a callable. Arrays become `FixedMatrix` rules. Callables
+                  receive `rule(op)`, or `rule(op, targets=targets)` if they
+                  accept a `targets=` keyword or `**kwargs`.
+                - Channel: a callable receiving `rule(channel, targets=targets)`
+                  and returning a nonempty tuple of Kraus matrices.
+                - Custom operation: a `CustomOperationImplementation` object
+                  defining `execute(operation, state, context)`.
             device_operands: Ordered, hashable device labels for one physical
                 target tuple. Its length must match a fixed integer
                 ``num_subsystems``. Instance-dependent and variable widths match

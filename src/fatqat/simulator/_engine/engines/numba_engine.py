@@ -400,25 +400,28 @@ class NumbaSVEngine(_NdarrayEngine):
     ) -> list[RawResult[np.ndarray]]:
         """Execute a parameter batch, packing the compiled trajectory plan once.
 
-        Batch entries differ only in their parametric gate matrices. The first
-        entry on the compiled trajectory workflow is packed as usual; later
-        entries reuse that packing and replace only those matrices. Entries on
-        any other workflow execute like ordinary plans.
+        Batch entries differ only in their parametric gate matrices, so the
+        policy is planned once from the first entry. On the compiled trajectory
+        workflow the first entry is packed as usual; later entries reuse that
+        packing and replace only those matrices. Entries on any other workflow
+        execute like ordinary plans.
         """
         positions = tuple(
             index
             for index, step in enumerate(plan)
             if isinstance(step, ApplyParametricMatrixStep)
         )
+        policy: ExecutionPolicy | None = None
         packed: _NumbaTrajectoryExecution | None = None
         results: list[RawResult[np.ndarray]] = []
         for bound in _bind_parameter_batch(plan, context.system_dims):
-            policy = self._plan_execution(
-                bound,
-                context=context,
-                simulation_config=simulation_config,
-                initial_state=initial_state,
-            )
+            if policy is None:
+                policy = self._plan_execution(
+                    bound,
+                    context=context,
+                    simulation_config=simulation_config,
+                    initial_state=initial_state,
+                )
             if policy.workflow != "numba_trajectories":
                 results.append(
                     self._execute_plan(bound, context, policy, initial_state)

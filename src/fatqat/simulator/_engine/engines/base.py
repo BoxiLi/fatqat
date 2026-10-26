@@ -211,18 +211,22 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
 
         A plan without parametric steps is a batch of one; a value-injected
         sweep plan has one entry per set of parameter values. Results follow
-        batch order. This default executes each bound plan like an ordinary
-        plan.
+        batch order. The policy reads only step kinds and run settings, so it
+        is planned once from the first entry; each bound plan then executes
+        like an ordinary plan.
         """
-        return [
-            self.execute(
-                plan=bound,
-                context=context,
-                simulation_config=simulation_config,
-                initial_state=initial_state,
-            )
-            for bound in _bind_parameter_batch(plan, context.system_dims)
-        ]
+        policy: ExecutionPolicy | None = None
+        results: list[RawResult[QuantumDataT]] = []
+        for bound in _bind_parameter_batch(plan, context.system_dims):
+            if policy is None:
+                policy = self._plan_execution(
+                    bound,
+                    context=context,
+                    simulation_config=simulation_config,
+                    initial_state=initial_state,
+                )
+            results.append(self._execute_plan(bound, context, policy, initial_state))
+        return results
 
     def execute(
         self,

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from typing import Protocol
 
     class _ProcessEngine(Protocol):
-        def materialize_execution(
+        def prepare_payload(
             self,
             plan: tuple[ResolvedStep, ...],
             *,
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
             policy: ExecutionPolicy,
         ) -> Any: ...
 
-        def execute_shot_batch(
+        def execute_worker_shots(
             self,
             context: _RunContext,
             payload: Any,
@@ -82,13 +82,13 @@ def _run_shot_batch(
     engine = engine_factory()
     # Bind worker-local numerical resources once for the whole batch. No parent
     # callbacks, caches, or device allocations cross the process boundary.
-    payload = engine.materialize_execution(
+    payload = engine.prepare_payload(
         plan,
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
         policy=child_policy,
     )
-    return engine.execute_shot_batch(
+    return engine.execute_worker_shots(
         context, payload, seed_batch, child_policy, initial_state=initial_state
     )
 

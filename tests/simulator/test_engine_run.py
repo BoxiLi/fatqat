@@ -57,13 +57,13 @@ def _run(
     policy=_SERIAL,
     initial_state=None,
 ):
-    payload = engine.materialize_execution(
+    payload = engine.prepare_payload(
         tuple(plan),
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
         policy=policy,
     )
-    return engine.execute_in_process(
+    return engine.execute_payload(
         context,
         payload,
         policy,
@@ -101,7 +101,7 @@ def test_execution_survives_layout_changes(density_matrix):
             shots=1,
             seed=0,
         )
-        payload = engine.materialize_execution(
+        payload = engine.prepare_payload(
             (ApplyMatrixStep(matrix, targets),),
             system_dims=dims,
             n_clbits=0,
@@ -115,7 +115,7 @@ def test_execution_survives_layout_changes(density_matrix):
 
     # Old payloads must remain usable after both cache reuse and pruning.
     for context, payload, policy, expected in reversed(executions):
-        result = engine.execute_in_process(
+        result = engine.execute_payload(
             context, payload, policy, initial_state=EvolutionState()
         )
         np.testing.assert_allclose(result.state, expected)
@@ -136,7 +136,7 @@ def test_numba_trajectory_execution_handles_supported_and_fallback_plans(with_lo
         shots=4,
         request=_ResultRequest(counts=True, final_state=False),
     )
-    result = engine.execute(
+    result = engine._execute_single(
         plan,
         context=context,
         simulation_config=_SimulationConfig(
@@ -264,7 +264,7 @@ def test_initial_register_drives_feedback_and_is_fresh_per_shot(mode):
         shots=8,
         request=_ResultRequest(counts=True, final_state=False),
     )
-    result = engine.execute(
+    result = engine._execute_single(
         tuple(plan),
         context=context,
         simulation_config=_SimulationConfig(
@@ -342,7 +342,7 @@ def test_numba_initial_occupancy_preserves_erased_measurement():
         shots=4,
         request=_ResultRequest(counts=True, final_state=False),
     )
-    result = engine.execute(
+    result = engine._execute_single(
         plan,
         context=context,
         simulation_config=_SimulationConfig(

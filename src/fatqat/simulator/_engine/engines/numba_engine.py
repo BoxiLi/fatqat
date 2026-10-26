@@ -1,7 +1,7 @@
 """Numba matrix-family engines.
 
 `NumbaSVEngine` (statevector) and `NumbaDMEngine` (density matrix) reuse
-shared materialization and Python execution from ``MatrixEngine`` and
+shared payload preparation and Python execution from ``MatrixEngine`` and
 ndarray initialization and expectations from ``_NdarrayEngine``,
 while replacing numeric kernels with Numba-jitted loops. `NumbaUnitaryEngine`
 and `NumbaSuperopEngine` then reuse *those* kernels for the operator
@@ -206,7 +206,7 @@ class NumbaSVEngine(_NdarrayEngine):
         supports_process_shots=True,
     )
 
-    def _plan_execution(
+    def _select_policy(
         self,
         plan: Sequence[ResolvedStep],
         *,
@@ -372,7 +372,7 @@ class NumbaSVEngine(_NdarrayEngine):
     def _execution_scope(self, policy: ExecutionPolicy):
         return _thread_scope(policy)
 
-    def materialize_execution(
+    def prepare_payload(
         self,
         plan: tuple[ResolvedStep, ...],
         *,
@@ -381,13 +381,13 @@ class NumbaSVEngine(_NdarrayEngine):
         policy: ExecutionPolicy,
     ) -> _PythonExecution | _NumbaTrajectoryExecution | _NumbaSinglePassExecution:
         if policy.workflow == "python":
-            return super().materialize_execution(
+            return super().prepare_payload(
                 plan, system_dims=system_dims, n_clbits=n_clbits, policy=policy
             )
         if policy.workflow == "numba_single_pass":
             template = _placeholder_plan(plan, system_dims)
             # Prepare sampling first, so packing leaves the gate caches in place.
-            sampling = super().materialize_execution(
+            sampling = super().prepare_payload(
                 tuple(step for step in template if isinstance(step, MeasurementStep)),
                 system_dims=system_dims,
                 n_clbits=n_clbits,
@@ -411,7 +411,7 @@ class NumbaSVEngine(_NdarrayEngine):
             self._matrix_structures.resolve,
         )
 
-    def execute_in_process(
+    def execute_payload(
         self,
         context: _RunContext,
         payload: (
@@ -422,7 +422,7 @@ class NumbaSVEngine(_NdarrayEngine):
         initial_state: EvolutionState[np.ndarray],
     ) -> RawResult[np.ndarray]:
         if policy.workflow == "python":
-            return super().execute_in_process(
+            return super().execute_payload(
                 context, payload, policy, initial_state=initial_state
             )
         if policy.workflow == "numba_single_pass":
@@ -430,7 +430,7 @@ class NumbaSVEngine(_NdarrayEngine):
                 (state,) = _evolve_sv_batch(
                     payload.batch, slice(0, 1), context, initial_state=initial_state
                 )
-            return super().execute_in_process(
+            return super().execute_payload(
                 context,
                 payload.sampling,
                 policy,
@@ -444,7 +444,7 @@ class NumbaSVEngine(_NdarrayEngine):
             outcome_keys, outcome_counts = reduce_to_counts(rows)
             return RawResult(outcome_keys=outcome_keys, outcome_counts=outcome_counts)
 
-    def execute_parameter_batch(
+    def execute(
         self,
         plan: tuple[ResolvedStep, ...],
         *,
@@ -468,14 +468,14 @@ class NumbaSVEngine(_NdarrayEngine):
             for index, step in enumerate(plan)
             if isinstance(step, ApplyParametricMatrixStep)
         )
-        policy = self._plan_execution(
+        policy = self._select_policy(
             _placeholder_plan(plan, context.system_dims),
             context=context,
             simulation_config=simulation_config,
             initial_state=initial_state,
         )
         if policy.workflow == "numba_single_pass":
-            payload = self.materialize_execution(
+            payload = self.prepare_payload(
                 plan,
                 system_dims=context.system_dims,
                 n_clbits=context.n_clbits,
@@ -494,7 +494,7 @@ class NumbaSVEngine(_NdarrayEngine):
                     )
                 for state in states:
                     single_pass.append(
-                        super().execute_in_process(
+                        super().execute_payload(
                             context,
                             payload.sampling,
                             policy,
@@ -510,11 +510,13 @@ class NumbaSVEngine(_NdarrayEngine):
         for bound in _bind_parameter_batch(plan, context.system_dims):
             if policy.workflow != "numba_trajectories":
                 results.append(
-                    self._execute_plan(bound, context, policy, initial_state)
+                    self._dispatch_by_shot_strategy(
+                        bound, context, policy, initial_state
+                    )
                 )
                 continue
             if packed is None:
-                payload = packed = self.materialize_execution(
+                payload = packed = self.prepare_payload(
                     bound,
                     system_dims=context.system_dims,
                     n_clbits=context.n_clbits,
@@ -527,7 +529,7 @@ class NumbaSVEngine(_NdarrayEngine):
                     packed, bound, positions, self._matrix_structures.resolve
                 )
             results.append(
-                self.execute_in_process(
+                self.execute_payload(
                     context, payload, policy, initial_state=initial_state
                 )
             )
@@ -578,7 +580,7 @@ class NumbaDMEngine(_NdarrayEngine):
 
     _allocate = staticmethod(_allocate_density_matrix)
 
-    def _plan_execution(
+    def _select_policy(
         self,
         plan: Sequence[ResolvedStep],
         *,
@@ -671,7 +673,7 @@ class _NumbaOperatorRunMixin:
     `_operator_payloads`.
     """
 
-    def _plan_execution(
+    def _select_policy(
         self,
         plan: Sequence[ResolvedStep],
         *,
@@ -706,7 +708,7 @@ class _NumbaOperatorRunMixin:
             workflow="numba_operator",
         )
 
-    def materialize_execution(
+    def prepare_payload(
         self,
         plan: tuple[ResolvedStep, ...],
         *,
@@ -737,7 +739,7 @@ class _NumbaOperatorRunMixin:
         del policy
         return plan
 
-    def execute_in_process(
+    def execute_payload(
         self,
         context: _RunContext,
         payload: _NumbaOperatorExecution,

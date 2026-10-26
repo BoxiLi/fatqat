@@ -714,7 +714,7 @@ class Simulator:
 
         Called once per run or sweep batch on the direct-raise validation path.
         The returned settings do not depend on parameter values; sweeps reuse
-        them while materializing the execution plan separately for each row.
+        them while the engine binds and executes each row.
         """
         config = _normalize_config(
             result_config,
@@ -968,7 +968,7 @@ class Simulator:
             shots=1,
             seed=execution.simulation.seed,
         )
-        raw = self._engine.execute(
+        raw = self._engine._execute_single(
             plan=plan,
             context=context,
             simulation_config=execution.simulation,
@@ -1001,7 +1001,7 @@ class Simulator:
             shots=1 if has_terms else shots,
             seed=execution.simulation.seed,
         )
-        values = self._engine.execute_expectation(
+        values = self._engine.expectation_values(
             plan,
             tuple(tuple(terms) for terms in terms_by_observable) if has_terms else (),
             context=context,
@@ -1056,7 +1056,7 @@ class Simulator:
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
             )
             sample_plan = bound.tail if base_state is not None else plan + bound.tail
-            raw = self._engine.execute(
+            raw = self._engine._execute_single(
                 plan=sample_plan,
                 context=context,
                 simulation_config=execution.simulation,
@@ -1092,7 +1092,7 @@ class Simulator:
         job; no partial list is exposed.
         """
         try:
-            raws = self._engine.execute_parameter_batch(
+            raws = self._engine.execute(
                 execution.plan,
                 context=context,
                 simulation_config=execution.simulation,

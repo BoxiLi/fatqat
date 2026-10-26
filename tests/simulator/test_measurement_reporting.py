@@ -44,13 +44,13 @@ def test_reported_digit_mapping_precedes_confusion_and_feedforward():
         worker_limit=1,
         fusion=False,
     )
-    payload = engine.materialize_execution(
+    payload = engine.prepare_payload(
         plan,
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
         policy=policy,
     )
-    result = engine.execute_in_process(
+    result = engine.execute_payload(
         context, payload, policy, initial_state=EvolutionState()
     )
 

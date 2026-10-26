@@ -393,7 +393,7 @@ def test_point_job_interrupt_propagates_from_sweep(monkeypatch):
     def interrupt(*_args, **_kwargs):
         raise error
 
-    monkeypatch.setattr(backend._engine, "execute_parameter_batch", interrupt)
+    monkeypatch.setattr(backend._engine, "execute", interrupt)
 
     # Captured error handling covers Exception, never an interrupt.
     with pytest.raises(KeyboardInterrupt, match="point interrupted") as caught:
@@ -541,7 +541,7 @@ def test_engines_reject_unbound_parametric_steps():
         next(_bind_parameter_batch(template, (2,)))
     with pytest.raises(RuntimeError, match="bound before execution"):
         # The guard runs before the context, policy, or state is read.
-        backend._engine._execute_plan(template, None, None, None)
+        backend._engine._dispatch_by_shot_strategy(template, None, None, None)
 
 
 def test_noisy_counts_sweep_matches_explicit_runs():

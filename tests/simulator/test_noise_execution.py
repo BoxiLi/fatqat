@@ -601,13 +601,13 @@ def test_numba_compiled_multi_shot_plan_matches_numpy_channels():
             fusion=False,
             workflow="numba_trajectories" if cls is NumbaSVEngine else "python",
         )
-        payload = simulator.materialize_execution(
+        payload = simulator.prepare_payload(
             tuple(plan),
             system_dims=context.system_dims,
             n_clbits=context.n_clbits,
             policy=policy,
         )
-        raw = simulator.execute_in_process(
+        raw = simulator.execute_payload(
             context,
             payload,
             policy,

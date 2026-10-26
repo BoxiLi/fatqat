@@ -261,8 +261,9 @@ def test_batched_builder_failure_raises_matrix_implementation_error():
     program = fq.Program(1)
     program.add(ops.U(theta, 10**400, 0), 0)
 
+    # The NumPy runtime binds sweep values through the host batched rules.
     with pytest.raises(MatrixImplementationError, match="implementation for U"):
-        Simulator("SV").run_sweep(program, {theta: [0.1, 0.2]})
+        Simulator("SV", runtime="numpy").run_sweep(program, {theta: [0.1, 0.2]})
 
 
 def test_batch_validation_finishes_before_row_zero(monkeypatch):
@@ -360,7 +361,7 @@ def test_failed_point_execution_produces_failed_outer_job_without_partial_list(
     program.add(ops.RX(theta), 0)
     backend = Simulator()
     error = RuntimeError("point failed")
-    original_execute = backend._engine._execute_plan
+    original_assemble = backend._assemble_result
     calls = 0
 
     def fail_on_second(*args, **kwargs):
@@ -368,11 +369,11 @@ def test_failed_point_execution_produces_failed_outer_job_without_partial_list(
         calls += 1
         if calls == 2:
             raise error
-        return original_execute(*args, **kwargs)
+        return original_assemble(*args, **kwargs)
 
-    # Every sweep row of this program executes through the engine's plan
-    # dispatch, so failing its second call fails the second row.
-    monkeypatch.setattr(backend._engine, "_execute_plan", fail_on_second)
+    # Every sweep row's result is assembled separately, so failing the second
+    # assembly fails the second row on any execution path.
+    monkeypatch.setattr(backend, "_assemble_result", fail_on_second)
     outer = backend.run_sweep(
         program, {theta: [0.1, 0.2]}, simulation_config={"error_handling": "capture"}
     )
@@ -652,4 +653,37 @@ def test_replay_revalidates_targets_after_substitution():
             {theta: [0.5, -0.5]},
             shots=0,
             result_config={"counts": False, "final_state": True},
+        )
+
+
+def test_compiled_sweep_formulas_match_numpy_runtime():
+    # Every built-in parametric gate, including constant fields, U2's fixed
+    # theta, and qutrit subspace rotations, bound inside the compiled sweep.
+    a, b, c = fq.Parameter("a"), fq.Parameter("b"), fq.Parameter("c")
+    qubits = fq.QuantumRegister(2)
+    qutrit = fq.QuantumRegister(1, dim=3)
+    program = fq.Program([qubits, qutrit])
+    program.add(ops.RX(a), qubits[0])
+    program.add(ops.RY(b), qubits[1])
+    program.add(ops.RZ(c), qubits[0])
+    program.add(ops.Phase(a), qubits[1])
+    program.add(ops.U(a, b, 0.3), qubits[0])
+    program.add(ops.U1(b), qubits[1])
+    program.add(ops.U2(a, c), qubits[0])
+    program.add(ops.U3(c, a, b), qubits[1])
+    program.add(ops.CPhase(b), (qubits[0], qubits[1]))
+    program.add(ops.SubspaceRX(a, (0, 2)), qutrit[0])
+    program.add(ops.SubspaceRY(b, (1, 2)), qutrit[0])
+    program.add(ops.SubspaceRZ(c, (0, 1)), qutrit[0])
+    values = np.random.default_rng(4).uniform(-np.pi, np.pi, (3, 5))
+    bindings = {a: values[0], b: values[1], c: values[2]}
+
+    swept = Simulator("SV").run_sweep(program, bindings, **_STATE_ONLY).result()
+    reference = (
+        Simulator("SV", runtime="numpy").run_sweep(program, bindings, **_STATE_ONLY)
+    ).result()
+
+    for result, expected in zip(swept, reference, strict=True):
+        np.testing.assert_allclose(
+            result.get_statevector(), expected.get_statevector(), rtol=0, atol=1e-12
         )

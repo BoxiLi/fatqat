@@ -112,15 +112,15 @@ def test_sweep_keeps_fixed_resolutions_and_releases_replaced_rows(monkeypatch, m
         else backend._engine._superoperators
     )
     observed = _observe_resolutions(monkeypatch, cache, "resolve")
-    execute = backend._engine.execute
+    execute = backend._engine._execute_plan
     rows_checked = 0
     fixed_resolution = None
     previous_parameterized = []
 
-    def check_row(**kwargs):
+    def check_row(*args, **kwargs):
         nonlocal rows_checked, fixed_resolution, previous_parameterized
         start = len(observed)
-        raw = execute(**kwargs)
+        raw = execute(*args, **kwargs)
         # Identify the operations, not their resolution order or call count.
         current = observed[start:]
         fixed = [item for item in current if item[0]().kernel_key == BuiltinKernelKey.H]
@@ -142,7 +142,9 @@ def test_sweep_keeps_fixed_resolutions_and_releases_replaced_rows(monkeypatch, m
         rows_checked += 1
         return raw
 
-    monkeypatch.setattr(backend._engine, "execute", check_row)
+    # Every sweep row of this program executes through the engine's plan
+    # dispatch, on the default path and the Numba sweep path alike.
+    monkeypatch.setattr(backend._engine, "_execute_plan", check_row)
     theta = fq.Parameter("theta")
     program = fq.Program(1)
     program.add(ops.H, 0)

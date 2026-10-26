@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from typing import Any, Generic
@@ -29,7 +29,7 @@ from ....result import reduce_to_counts
 from .._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
 )
-from ..binding import _bind_rows
+from ..binding import _bind_parameter_batch
 from ..parallel import _run_shots_in_processes
 from ..state import EvolutionState, QuantumDataT
 from ..workflows.python_workflow import (
@@ -199,19 +199,30 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         """
         return nullcontext()
 
-    def bind_sweep(
+    def execute_parameter_batch(
         self,
         plan: tuple[ResolvedStep, ...],
-        n_rows: int,
         *,
-        system_dims: tuple[int, ...],
-    ) -> Iterator[tuple[ResolvedStep, ...]]:
-        """Yield the executable plan for each row of a value-injected sweep plan.
+        context: _RunContext,
+        simulation_config: SimulationConfig,
+        initial_state: EvolutionState[QuantumDataT],
+    ) -> list[RawResult[QuantumDataT]]:
+        """Bind and execute a plan for every entry of its parameter batch.
 
-        Binding errors raise from the iterator, before the caller executes the
-        row, so they stay distinct from that row's execution errors.
+        A plan without parametric steps is a batch of one; a value-injected
+        sweep plan has one entry per set of parameter values. Results follow
+        batch order. This default executes each bound plan like an ordinary
+        plan.
         """
-        return _bind_rows(plan, n_rows, system_dims)
+        return [
+            self.execute(
+                plan=bound,
+                context=context,
+                simulation_config=simulation_config,
+                initial_state=initial_state,
+            )
+            for bound in _bind_parameter_batch(plan, context.system_dims)
+        ]
 
     def execute(
         self,

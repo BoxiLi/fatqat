@@ -101,6 +101,7 @@ from ..._execution_contract import (
 from ...._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    ApplyParametricMatrixStep,
     ResetStep,
     ResolvedStep,
 )
@@ -149,6 +150,7 @@ from ..numerics.numba_kernels._channel import (
     _apply_channel_density_matrix,
 )
 from ..numerics.numpy_kernels._reset import _reset_density_matrix, _reset_superoperator
+from ..binding import _bind_parameter_batch
 from ..state import EvolutionState
 from .ndarray_engine import _NdarrayEngine
 from ..numerics.numpy_kernels._state import (
@@ -171,6 +173,7 @@ from ..workflows.numba_workflow.trajectories import (
     _NumbaTrajectoryExecution,
     _compile_dynamic_plan,
     _execute_sv_trajectories,
+    _patch_gate_matrices,
     _plan_compilable,
 )
 
@@ -386,6 +389,60 @@ class NumbaSVEngine(_NdarrayEngine):
             )
             outcome_keys, outcome_counts = reduce_to_counts(rows)
             return RawResult(outcome_keys=outcome_keys, outcome_counts=outcome_counts)
+
+    def execute_parameter_batch(
+        self,
+        plan: tuple[ResolvedStep, ...],
+        *,
+        context: _RunContext,
+        simulation_config: SimulationConfig,
+        initial_state: EvolutionState[np.ndarray],
+    ) -> list[RawResult[np.ndarray]]:
+        """Execute a parameter batch, packing the compiled trajectory plan once.
+
+        Batch entries differ only in their parametric gate matrices. The first
+        entry on the compiled trajectory workflow is packed as usual; later
+        entries reuse that packing and replace only those matrices. Entries on
+        any other workflow execute like ordinary plans.
+        """
+        positions = tuple(
+            index
+            for index, step in enumerate(plan)
+            if isinstance(step, ApplyParametricMatrixStep)
+        )
+        packed: _NumbaTrajectoryExecution | None = None
+        results: list[RawResult[np.ndarray]] = []
+        for bound in _bind_parameter_batch(plan, context.system_dims):
+            policy = self._plan_execution(
+                bound,
+                context=context,
+                simulation_config=simulation_config,
+                initial_state=initial_state,
+            )
+            if policy.workflow != "numba_trajectories":
+                results.append(
+                    self._execute_plan(bound, context, policy, initial_state)
+                )
+                continue
+            if packed is None:
+                payload = packed = self.materialize_execution(
+                    bound,
+                    system_dims=context.system_dims,
+                    n_clbits=context.n_clbits,
+                    policy=policy,
+                )
+            else:
+                # Release the previous entry's gate steps before resolving these.
+                self._retain_step_caches(bound)
+                payload = _patch_gate_matrices(
+                    packed, bound, positions, self._matrix_structures.resolve
+                )
+            results.append(
+                self.execute_in_process(
+                    context, payload, policy, initial_state=initial_state
+                )
+            )
+        return results
 
     def _build_apply_layout(
         self,

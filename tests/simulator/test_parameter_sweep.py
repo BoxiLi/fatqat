@@ -3,7 +3,7 @@
 import inspect
 import pickle
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import ClassVar
 
@@ -21,13 +21,11 @@ from fatqat._backends.steps import (
 from fatqat._index_allocation import _ClassicalAllocation
 from fatqat.errors import BackendValidationError, MatrixImplementationError
 from fatqat.implementation import MatrixImplementationMap
-from fatqat.job import Job
 from fatqat.operations import Operation
 from fatqat.resource_layout import ResourceLayout
 from fatqat.result import Result
-from fatqat.simulator import Simulator, planning
-from fatqat.simulator._engine import binding
-from fatqat.simulator._engine.binding import _bind_rows
+from fatqat.simulator import Simulator
+from fatqat.simulator._engine.binding import _bind_parameter_batch
 
 
 def _rx_matrix(angle):
@@ -238,9 +236,7 @@ def test_every_builtin_parametric_gate_matches_explicit_loop(
         )
 
 
-def test_counts_match_explicit_loop_across_replay_chunks(monkeypatch):
-    # Room for three 2x2 complex matrices per chunk: 7 rows take 3 chunks.
-    monkeypatch.setattr(binding, "_REPLAY_CHUNK_BYTES", 3 * 4 * 16)
+def test_counts_match_explicit_loop():
     theta = fq.Parameter("theta")
     program = fq.Program(1, 1)
     program.add(ops.RY(theta), 0)
@@ -258,26 +254,6 @@ def test_counts_match_explicit_loop_across_replay_chunks(monkeypatch):
     ]
 
     assert [result.get_counts() for result in swept] == explicit
-
-
-def test_replay_chunks_are_sized_by_matrix_bytes(monkeypatch):
-    # Room for two 3x3 complex matrices per chunk: 5 rows take chunks 2, 2, 1.
-    monkeypatch.setattr(binding, "_REPLAY_CHUNK_BYTES", 2 * 9 * 16)
-    chunk_sizes = []
-    build = binding._build_matrix_batch
-
-    def recording_build(step, builder, target_dims, rows):
-        chunk_sizes.append(rows.stop - rows.start)
-        return build(step, builder, target_dims, rows)
-
-    monkeypatch.setattr(binding, "_build_matrix_batch", recording_build)
-    theta = fq.Parameter("theta")
-    program = fq.Program([fq.QuantumRegister(1, dim=3)])
-    program.add(ops.SubspaceRX(theta, (0, 2)), 0)
-
-    Simulator("SV").run_sweep(program, {theta: np.linspace(0, 1, 5)}, **_STATE_ONLY)
-
-    assert chunk_sizes == [2, 2, 1]
 
 
 def test_batched_builder_failure_raises_matrix_implementation_error():
@@ -384,7 +360,7 @@ def test_failed_point_execution_produces_failed_outer_job_without_partial_list(
     program.add(ops.RX(theta), 0)
     backend = Simulator()
     error = RuntimeError("point failed")
-    original_execute = backend._engine.execute
+    original_execute = backend._engine._execute_plan
     calls = 0
 
     def fail_on_second(*args, **kwargs):
@@ -394,7 +370,9 @@ def test_failed_point_execution_produces_failed_outer_job_without_partial_list(
             raise error
         return original_execute(*args, **kwargs)
 
-    monkeypatch.setattr(backend._engine, "execute", fail_on_second)
+    # Every sweep row of this program executes through the engine's plan
+    # dispatch, so failing its second call fails the second row.
+    monkeypatch.setattr(backend._engine, "_execute_plan", fail_on_second)
     outer = backend.run_sweep(
         program, {theta: [0.1, 0.2]}, simulation_config={"error_handling": "capture"}
     )
@@ -411,14 +389,16 @@ def test_point_job_interrupt_propagates_from_sweep(monkeypatch):
     backend = Simulator()
     error = KeyboardInterrupt("point interrupted")
 
-    monkeypatch.setattr(
-        backend,
-        "_execute_plan",
-        lambda *_args, **_kwargs: Job(status="ERROR", error=error),
-    )
+    def interrupt(*_args, **_kwargs):
+        raise error
 
+    monkeypatch.setattr(backend._engine, "execute_parameter_batch", interrupt)
+
+    # Captured error handling covers Exception, never an interrupt.
     with pytest.raises(KeyboardInterrupt, match="point interrupted") as caught:
-        backend.run_sweep(program, {theta: [0.1]})
+        backend.run_sweep(
+            program, {theta: [0.1]}, simulation_config={"error_handling": "capture"}
+        )
     assert caught.value is error
 
 
@@ -524,28 +504,24 @@ def test_parametric_program_lowers_to_deferred_picklable_steps():
         classical_allocation=_ClassicalAllocation.from_program(program),
     )
 
-    template, _facts = backend._prepare_program(program, context=context, sweep=True)
-
-    assert [type(step) for step in template] == [
-        ApplyMatrixStep,
-        ApplyParametricMatrixStep,
-    ]
-    assert template[1].operation.theta is theta
-    assert template[1].target_indices == (0,)
-    assert template[1].values == ()
     column = np.array([0.3, 0.6])
-    plan = planning._inject_parameter_values(template, {theta: column})
-    assert plan[0] is template[0]
+    plan, _facts = backend._prepare_program(
+        program, context=context, parameter_values={theta: column}
+    )
+
+    assert [type(step) for step in plan] == [ApplyMatrixStep, ApplyParametricMatrixStep]
+    assert plan[1].operation.theta is theta
+    assert plan[1].target_indices == (0,)
     ((name, injected),) = plan[1].values
     assert name == "theta" and injected is column
     # Non-parametric steps are shared with the bound plans, not rebuilt.
-    first, second = _bind_rows(plan, 2, (2,))
+    first, second = _bind_parameter_batch(plan, (2,))
     assert first[0] is plan[0]
     assert isinstance(first[1], ApplyMatrixStep)
     assert np.allclose(first[1].matrix, _rx_matrix(0.3))
     assert np.allclose(second[1].matrix, _rx_matrix(0.6))
     # The value-injected plan is plain data: it pickles by value on its own.
-    (restored,) = _bind_rows(pickle.loads(pickle.dumps(plan)), 1, (2,))
+    restored, _ = _bind_parameter_batch(pickle.loads(pickle.dumps(plan)), (2,))
     assert np.allclose(restored[1].matrix, _rx_matrix(0.3))
 
 
@@ -554,14 +530,62 @@ def test_engines_reject_unbound_parametric_steps():
     program = fq.Program(1)
     program.add(ops.RX(theta), 0)
     backend = Simulator("SV")
-    template, _facts = backend._prepare_program(program, sweep=True)
+    plan, _facts = backend._prepare_program(
+        program, parameter_values={theta: np.array([0.1])}
+    )
+    template = (replace(plan[0], values=()),)
 
     assert ApplyParametricMatrixStep in typing.get_args(ResolvedStep)
     with pytest.raises(RuntimeError, match="injected before binding"):
-        next(backend._engine.bind_sweep(template, 1, system_dims=(2,)))
+        next(_bind_parameter_batch(template, (2,)))
     with pytest.raises(RuntimeError, match="bound before execution"):
         # The guard runs before the context, policy, or state is read.
         backend._engine._execute_plan(template, None, None, None)
+
+
+def test_noisy_counts_sweep_matches_explicit_runs():
+    # Noise, counts, and repeated shots select per-shot trajectories. Tilt has
+    # a custom rule whose matrix structure changes with its angle: diagonal at
+    # 0, a permutation at pi, dense otherwise. Every row must match its own run.
+    @dataclass(frozen=True)
+    class Tilt(Operation):
+        theta: float | fq.Parameter
+        name: ClassVar[str] = "Tilt"
+        num_subsystems: ClassVar[int] = 1
+
+    def tilt(op):
+        return _rx_matrix(op.theta)
+
+    theta, phi, tau = fq.Parameter("theta"), fq.Parameter("phi"), fq.Parameter("tau")
+    program = fq.Program(2, 2)
+    program.add(ops.RY(theta), 0)
+    program.add(ops.CX, (0, 1))
+    program.add(ops.RZ(phi), 1)
+    program.add(Tilt(tau), 0)
+    program.measure(0, 0)
+    program.measure(1, 1)
+    impl_map = fq.implementation.default_matrix_implementation_map()
+    impl_map.add(Tilt, tilt)
+    noise = fq.NoiseModel()
+    noise.add(fq.noise.Depolarizing(p=0.05), operation=ops.CX)
+    backend = Simulator("SV", implementation_map=impl_map, noise=noise)
+    values = {theta: [0.1, 1.0, 2.0], phi: [0.0, 0.5, 3.0], tau: [0.0, np.pi, 1.2]}
+    options = {"shots": 64, "simulation_config": {"seed": 11}}
+
+    swept = backend.run_sweep(program, values, **options).result()
+
+    explicit = [
+        backend.run(
+            program.assign_parameters(
+                {key: column[row] for key, column in values.items()}
+            ),
+            **options,
+        )
+        .result()
+        .get_counts()
+        for row in range(3)
+    ]
+    assert [result.get_counts() for result in swept] == explicit
 
 
 def test_custom_rule_receives_each_row_value():

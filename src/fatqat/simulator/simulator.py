@@ -417,14 +417,15 @@ class Simulator:
         program: Program,
         *,
         context: _LoweringContext | None = None,
-        sweep: bool = False,
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
     ) -> tuple[tuple[ResolvedStep, ...], _PlanFacts]:
         """Lower and freeze once, then derive common plan facts.
 
-        A sweep keeps parameter-holding gates as `ApplyParametricMatrixStep`
-        values that ``run_sweep`` binds once per row. Plan facts read only
-        step kinds, indices and conditions, so they are valid for every row.
-        Every other caller must lower a fully bound program.
+        With ``parameter_values`` (a sweep), parameter-holding gates lower to
+        `ApplyParametricMatrixStep` values carrying their value columns, which
+        the engine binds per row. Plan facts read only step kinds, indices and
+        conditions, so they are valid for every row. Without it, the program
+        must be fully bound.
         """
         if context is None:
             resource_layout = self._resolve_resource_layout(program)
@@ -436,7 +437,7 @@ class Simulator:
                 classical_allocation=_ClassicalAllocation.from_program(program),
             )
         operations = _break_grouped_operations(program._instructions)
-        if not sweep:
+        if parameter_values is None:
             _raise_for_unbound_parameters(program._instructions)
         # pylint: disable-next=fixme
         # TODO: Support custom operations in run_sweep.
@@ -449,6 +450,8 @@ class Simulator:
                 "run_sweep does not support custom operations"
             )
         plan = tuple(self._lower(operations, context))
+        if parameter_values is not None:
+            plan = planning._inject_parameter_values(plan, parameter_values)
         return plan, self._analyze_lowered_plan(plan)
 
     def run(
@@ -570,7 +573,11 @@ class Simulator:
         config, context = self._prepare_run(
             execution, shots=shots, result_config=result_config
         )
-        return self._execute_plan(execution.plan, execution, config, context)
+        job = self._execute_plan(execution, config, context)
+        if job.status != "DONE":
+            return job
+        (result,) = job.result()
+        return Job(status="DONE", result=result)
 
     def run_sweep(
         self,
@@ -591,8 +598,9 @@ class Simulator:
         validated before execution and stored as NumPy arrays, so a custom
         matrix rule may receive a row's value as a NumPy scalar. One explicit
         seed is reused for every row, so sampled row errors can be correlated.
-        Binding and row-validation errors raise directly. Execution errors
-        follow ``run()``'s error-handling policy; no partial list is exposed.
+        Batch validation errors raise directly. Failures while binding or
+        executing any row follow ``run()``'s error-handling policy; no partial
+        list is exposed.
 
         Args:
             program: Parameterized template program.
@@ -654,7 +662,7 @@ class Simulator:
             BackendValidationError: If a bound row or forwarded run option
                 fails normal Simulator validation.
             MatrixImplementationError: If a matrix rule cannot build an
-                operation for one row.
+                operation for one row and ``error_handling`` is ``"raise"``.
             UnsupportedOperationError: If the program contains custom operations
                 or a row contains an operation the backend cannot run.
 
@@ -688,27 +696,12 @@ class Simulator:
             resource_layout=resource_layout,
             initial_state=initial_state,
             simulation_config=simulation_config,
-            sweep=True,
+            parameter_values=columns,
         )
         config, context = self._prepare_run(
             execution, shots=shots, result_config=result_config
         )
-        plan = planning._inject_parameter_values(execution.plan, columns)
-        n_rows = len(next(iter(columns.values())))
-        results: list[Result] = []
-        # Rule and shape failures raise directly from the iteration, exactly
-        # as they raise directly from lowering in run().
-        for point_plan in self._engine.bind_sweep(
-            plan, n_rows, system_dims=context.system_dims
-        ):
-            point_job = self._execute_plan(point_plan, execution, config, context)
-            try:
-                results.append(point_job.result())
-            except Exception as exc:  # execution-stage failure
-                if execution.simulation.error_handling == "raise":
-                    raise
-                return Job(status="ERROR", error=exc)
-        return Job(status="DONE", result=results)
+        return self._execute_plan(execution, config, context)
 
     def _prepare_run(
         self,
@@ -746,7 +739,7 @@ class Simulator:
         resource_layout: ResourceLayout | None,
         initial_state: Any,
         simulation_config: dict[str, Any] | None,
-        sweep: bool = False,
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
         simulation = _normalize_config(
@@ -785,7 +778,9 @@ class Simulator:
             engine_allocation=engine_allocation,
             classical_allocation=classical_allocation,
         )
-        plan, facts = self._prepare_program(program, context=lowering, sweep=sweep)
+        plan, facts = self._prepare_program(
+            program, context=lowering, parameter_values=parameter_values
+        )
         prepared = _PreparedExecution(
             plan=plan,
             facts=facts,
@@ -1085,38 +1080,40 @@ class Simulator:
 
     def _execute_plan(
         self,
-        plan: tuple[ResolvedStep, ...],
         execution: _PreparedExecution,
         config: _ResultConfig,
         context: _RunContext,
-    ) -> Job[Result]:
-        """Execute one concrete plan under already-validated run settings.
+    ) -> Job[list[Result]]:
+        """Execute a prepared plan for every entry of its parameter batch.
 
-        ``plan`` is ``execution.plan`` for an ordinary run, or one row's
-        materialized plan in a sweep. Error handling controls whether engine
-        planning, execution, and result-assembly failures propagate or become
-        a failed job.
+        An ordinary run is a batch of one; a sweep has one entry per set of
+        parameter values. Error handling controls whether binding, engine planning,
+        execution, and result-assembly failures propagate or become a failed
+        job; no partial list is exposed.
         """
         try:
-            raw = self._engine.execute(
-                plan=plan,
+            raws = self._engine.execute_parameter_batch(
+                execution.plan,
                 context=context,
-                initial_state=execution.initial_state,
                 simulation_config=execution.simulation,
+                initial_state=execution.initial_state,
             )
-            result = self._assemble_result(
-                raw=raw,
-                config=config,
-                simulation=execution.simulation,
-                lowering=execution.lowering,
-                request=context.request,
-                shots=context.shots,
-            )
-            return Job(status="DONE", result=result)
+            results = [
+                self._assemble_result(
+                    raw=raw,
+                    config=config,
+                    simulation=execution.simulation,
+                    lowering=execution.lowering,
+                    request=context.request,
+                    shots=context.shots,
+                )
+                for raw in raws
+            ]
         except Exception as exc:  # execution-stage failure
             if execution.simulation.error_handling == "raise":
                 raise
             return Job(status="ERROR", error=exc)
+        return Job(status="DONE", result=results)
 
     # --- validation (raises directly from run) ---
     def _validate_initial_state(

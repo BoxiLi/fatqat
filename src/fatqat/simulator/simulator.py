@@ -997,7 +997,9 @@ class Simulator:
         plan = execution.plan
         assert isinstance(plan, tuple)
         context = _RunContext(
-            request=_ResultRequest(counts=False, final_state=True),
+            request=_ResultRequest(
+                counts=False, final_state=True, final_classical_state=True
+            ),
             system_dims=tuple(execution.lowering.engine_allocation.system_dims),
             n_clbits=execution.lowering.classical_allocation.n_clbits,
             shots=1,
@@ -1009,9 +1011,9 @@ class Simulator:
             simulation_config=execution.simulation,
             initial_state=execution.initial_state,
         )
-        if raw.state is None:
+        if raw.state is None or raw.classical_state is None:
             raise RuntimeError("expectation base execution returned no state")
-        return self._engine._export_evolution_state()
+        return EvolutionState(quantum=raw.state, classical=raw.classical_state)
 
     def _execute_exact_expectation(
         self,

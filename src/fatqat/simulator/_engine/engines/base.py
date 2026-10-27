@@ -29,7 +29,7 @@ from .._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
 )
 from ..parallel import _run_shots_in_processes
-from ..state import ClassicalState, EvolutionState, QuantumDataT
+from ..state import EvolutionState, QuantumDataT
 from ..workflows.python_workflow import (
     _PythonExecution,
     _run_operator_plan,
@@ -338,11 +338,13 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                 reduce_to_counts(rows) if rows is not None else (None, None)
             )
             state = self.export_state() if state_requested else None
-            classical_state = (
-                self._export_classical_state()
-                if context.request.final_classical_state
-                else None
-            )
+            classical_state = None
+            if context.request.final_classical_state:
+                # Copy so later execution cannot change the returned digits.
+                assert self._evolution_state is not None
+                classical_state = deepcopy(self._evolution_state.classical)
+                if classical_state.clbits is None:
+                    classical_state.clbits = [0] * context.n_clbits
             return RawResult(
                 outcome_keys=outcome_keys,
                 outcome_counts=outcome_counts,
@@ -452,26 +454,3 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         transfer the result when they need independent storage or host data.
         """
         return self.state
-
-    def _export_classical_state(self) -> ClassicalState:
-        """Copy the last evolution's classical data with every digit allocated."""
-        if self._evolution_state is None:
-            raise RuntimeError("MatrixEngine state has not been initialized.")
-        classical = deepcopy(self._evolution_state.classical)
-        if classical.clbits is None:
-            classical.clbits = [0] * self._n_clbits
-        return classical
-
-    def _export_evolution_state(self) -> EvolutionState[QuantumDataT]:
-        """Export completed local evolution as reusable initialization.
-
-        Quantum data is borrowed in runtime-native storage. Classical values
-        are copied so later execution cannot change the saved initialization.
-        Each consumer initializes its own mutable state before evolving it.
-        """
-        if self._evolution_state is None:
-            raise RuntimeError("MatrixEngine state has not been initialized.")
-        return EvolutionState(
-            quantum=self.export_state(),
-            classical=deepcopy(self._evolution_state.classical),
-        )

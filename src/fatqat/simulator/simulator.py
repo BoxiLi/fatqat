@@ -6,9 +6,10 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
+from itertools import batched, chain
 from typing import Any
 
 import numpy as np
@@ -113,6 +114,9 @@ _METHOD_SPECS: dict[str, _MethodSpec] = {
         numba_engine_name="NumbaSuperopEngine",
     ),
 }
+
+# Base states a sampled expectation sweep keeps alive while its terms sample.
+_SAMPLED_BASE_STATE_BYTES = 256 * 2**20
 
 
 @dataclass(frozen=True, slots=True)
@@ -984,8 +988,8 @@ class Simulator:
     def _execute_expectation_base(
         self,
         execution: _PreparedExecution,
-    ) -> list[EvolutionState]:
-        """Evolve every entry once and keep its quantum and classical state."""
+    ) -> Iterator[EvolutionState]:
+        """Evolve every entry once and yield its quantum and classical state."""
         context = _RunContext(
             request=_ResultRequest(
                 counts=False, final_state=True, final_classical_state=True
@@ -995,7 +999,6 @@ class Simulator:
             shots=1,
             seed=execution.simulation.seed,
         )
-        states = []
         for raw in self._engine.execute(
             execution.plan,
             context=context,
@@ -1004,10 +1007,7 @@ class Simulator:
         ):
             if raw.state is None or raw.classical_state is None:
                 raise RuntimeError("expectation base execution returned no state")
-            states.append(
-                EvolutionState(quantum=raw.state, classical=raw.classical_state)
-            )
-        return states
+            yield EvolutionState(quantum=raw.state, classical=raw.classical_state)
 
     def _execute_exact_expectation(
         self,
@@ -1061,14 +1061,10 @@ class Simulator:
         """Sample each term occurrence for every entry; one result per entry.
 
         A deterministic plan evolves every entry once and runs each term's
-        measurement tail from those states. A stochastic plan reruns the
-        whole plan with each tail. Each term has one seed, shared by entries.
+        measurement tail from those states, a bounded chunk of entries at a
+        time. A stochastic plan reruns the whole plan with each tail. Each
+        term has one seed, shared by entries.
         """
-        base_states = (
-            self._execute_expectation_base(execution)
-            if not execution.facts.stochastic_final_state
-            else None
-        )
 
         def with_scratch(
             initial: EvolutionState, bound: _BoundExpectationOccurrence
@@ -1085,12 +1081,11 @@ class Simulator:
                 ),
             )
 
-        statistics: list[list] = []
         child_seeds = np.random.SeedSequence(execution.simulation.seed).spawn(
             len(bound_occurrences)
         )
-        for child_seed, bound in zip(child_seeds, bound_occurrences, strict=True):
-            context = _RunContext(
+        contexts = [
+            _RunContext(
                 request=_ResultRequest(counts=True, final_state=False),
                 system_dims=tuple(execution.lowering.engine_allocation.system_dims),
                 n_clbits=(
@@ -1100,34 +1095,64 @@ class Simulator:
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
             )
-            if base_states is not None:
-                raws = self._engine.continue_from_states(
-                    bound.tail,
-                    [with_scratch(state, bound) for state in base_states],
-                    context=context,
-                    simulation_config=execution.simulation,
-                )
-            else:
-                raws = self._engine.execute(
-                    execution.plan + bound.tail,
-                    context=context,
-                    simulation_config=execution.simulation,
-                    initial_state=with_scratch(execution.initial_state, bound),
-                )
-            if not statistics:
-                statistics = [[] for _raw in raws]
-            for entry, raw in zip(statistics, raws, strict=True):
-                if raw.outcome_keys is None or raw.outcome_counts is None:
-                    raise RuntimeError(
-                        "sampled expectation execution returned no outcomes"
+            for child_seed, bound in zip(child_seeds, bound_occurrences, strict=True)
+        ]
+
+        def sample_terms(
+            base_states: Sequence[EvolutionState] | None,
+        ) -> list[list[tuple[int, int]]]:
+            """Return per-entry term statistics, from base states if given."""
+            statistics: list[list[tuple[int, int]]] = []
+            for context, bound in zip(contexts, bound_occurrences, strict=True):
+                if base_states is not None:
+                    raws = self._engine.continue_from_states(
+                        bound.tail,
+                        [with_scratch(state, bound) for state in base_states],
+                        context=context,
+                        simulation_config=execution.simulation,
                     )
-                measured_rows = raw.outcome_keys[:, bound.scratch_indices]
-                entry.append(
-                    _reduce_outcome_counts(
-                        bound.engine_factors,
-                        zip(measured_rows, raw.outcome_counts, strict=True),
+                else:
+                    raws = list(
+                        self._engine.execute(
+                            execution.plan + bound.tail,
+                            context=context,
+                            simulation_config=execution.simulation,
+                            initial_state=with_scratch(execution.initial_state, bound),
+                        )
                     )
-                )
+                if not statistics:
+                    statistics = [[] for _raw in raws]
+                for entry, raw in zip(statistics, raws, strict=True):
+                    if raw.outcome_keys is None or raw.outcome_counts is None:
+                        raise RuntimeError(
+                            "sampled expectation execution returned no outcomes"
+                        )
+                    measured_rows = raw.outcome_keys[:, bound.scratch_indices]
+                    entry.append(
+                        _reduce_outcome_counts(
+                            bound.engine_factors,
+                            zip(measured_rows, raw.outcome_counts, strict=True),
+                        )
+                    )
+            return statistics
+
+        if execution.facts.stochastic_final_state:
+            # Noise, mid-circuit measurement, or reset gives each shot its own
+            # final state, so no evolved state can be shared by the shots.
+            # Every term reruns the whole plan with its tail instead.
+            statistics = sample_terms(None)
+        else:
+            # Every shot of a row ends in the same state (density-matrix noise
+            # included), so each row evolves once and every term's tail
+            # continues from it. Keep a bounded number of base states alive:
+            # each chunk is evolved, sampled by every term, then released.
+            # Small states fit in one chunk, so their terms run back to back.
+            states = self._execute_expectation_base(execution)
+            first = next(states)
+            rows = max(1, _SAMPLED_BASE_STATE_BYTES // first.quantum.nbytes)
+            statistics = []
+            for chunk in batched(chain([first], states), rows):
+                statistics.extend(sample_terms(chunk))
         occurrences = tuple(bound.occurrence for bound in bound_occurrences)
         return [
             _combine_term_statistics(constants, occurrences, entry, shots=shots)
@@ -1148,11 +1173,17 @@ class Simulator:
         job; no partial list is exposed.
         """
         try:
-            raws = self._engine.execute(
-                execution.plan,
-                context=context,
-                simulation_config=execution.simulation,
-                initial_state=execution.initial_state,
+            # Run every entry before assembling any result. Every result is
+            # returned, so consuming `execute` lazily saves no memory here, and
+            # interleaving assembly with execution measured ~5-10% slower
+            # for 6 qubit-circuit.
+            raws = list(
+                self._engine.execute(
+                    execution.plan,
+                    context=context,
+                    simulation_config=execution.simulation,
+                    initial_state=execution.initial_state,
+                )
             )
             results = [
                 self._assemble_result(

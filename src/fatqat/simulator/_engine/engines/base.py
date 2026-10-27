@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from typing import Any, Generic
@@ -206,17 +206,17 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
-    ) -> list[RawResult[QuantumDataT]]:
+    ) -> Iterator[RawResult[QuantumDataT]]:
         """Bind and execute a plan for every entry of its parameter batch.
 
         A plan without parametric steps is a batch of one; a value-injected
-        sweep plan has one entry per set of parameter values. Results follow
-        batch order. The policy reads only step kinds and run settings, so it
-        is planned once from the first entry; each bound plan then executes
-        like an ordinary plan.
+        sweep plan has one entry per set of parameter values. Results are
+        yielded in batch order as each entry finishes, so a caller that
+        consumes them one at a time keeps one entry's state alive. The policy
+        reads only step kinds and run settings, so it is planned once from the
+        first entry; each bound plan then executes like an ordinary plan.
         """
         policy: ExecutionPolicy | None = None
-        results: list[RawResult[QuantumDataT]] = []
         for bound in _bind_parameter_batch(plan, context.system_dims):
             if policy is None:
                 policy = self._select_policy(
@@ -225,10 +225,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                     simulation_config=simulation_config,
                     initial_state=initial_state,
                 )
-            results.append(
-                self._dispatch_by_shot_strategy(bound, context, policy, initial_state)
-            )
-        return results
+            yield self._dispatch_by_shot_strategy(bound, context, policy, initial_state)
 
     def continue_from_states(
         self,
@@ -294,6 +291,11 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         if not observables:
             return []
         values = []
+        # Contract each entry as it is yielded, so only one evolved state is
+        # alive at a time; the caller keeps only the scalar values. Unlike
+        # `Simulator._execute_plan`, which collects every entry first, this
+        # interleaves engine runs with contraction, which measured ~10-20%
+        # slower for small (6-qubit) states.
         for raw in self.execute(
             plan,
             context=context,

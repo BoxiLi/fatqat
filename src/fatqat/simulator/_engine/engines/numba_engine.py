@@ -83,7 +83,7 @@ mapping twice and allocate an unnecessary full-result copy.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from math import prod
 from dataclasses import replace
 from functools import partial
@@ -457,7 +457,7 @@ class NumbaSVEngine(_NdarrayEngine):
         context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[np.ndarray],
-    ) -> list[RawResult[np.ndarray]]:
+    ) -> Iterator[RawResult[np.ndarray]]:
         """Execute a parameter batch, packing compiled workflows only once.
 
         Batch entries differ only in their parametric gate matrices, so the
@@ -467,7 +467,8 @@ class NumbaSVEngine(_NdarrayEngine):
         call per chunk; the Python single-pass workflow samples each state.
         On the compiled trajectory workflow the first entry is packed as
         usual and later entries replace only their gate matrices. Other
-        batches execute entry by entry.
+        batches execute entry by entry. Results are yielded in batch order,
+        as in `MatrixEngine.execute`.
         """
         positions = tuple(
             index
@@ -480,6 +481,9 @@ class NumbaSVEngine(_NdarrayEngine):
             simulation_config=simulation_config,
             initial_state=initial_state,
         )
+        # Compiled single pass: evolve blocks of entries in one compiled call,
+        # then sample and yield each entry's state; a block is freed once all
+        # of its entries are consumed.
         if policy.workflow == "numba_single_pass":
             payload = self.prepare_payload(
                 plan,
@@ -489,7 +493,6 @@ class NumbaSVEngine(_NdarrayEngine):
             )
             n_entries = payload.batch.values.shape[0]
             chunk = max(1, _BATCH_STATE_BYTES // (16 * prod(context.system_dims)))
-            single_pass: list[RawResult[np.ndarray]] = []
             for start in range(0, n_entries, chunk):
                 with self._execution_scope(policy):
                     states = _evolve_sv_batch(
@@ -499,26 +502,23 @@ class NumbaSVEngine(_NdarrayEngine):
                         initial_state=initial_state,
                     )
                 for state in states:
-                    single_pass.append(
-                        super().execute_payload(
-                            context,
-                            payload.sampling,
-                            policy,
-                            initial_state=EvolutionState(
-                                state, initial_state.classical
-                            ),
-                        )
+                    yield super().execute_payload(
+                        context,
+                        payload.sampling,
+                        policy,
+                        initial_state=EvolutionState(state, initial_state.classical),
                     )
-            return single_pass
+            return
 
+        # Every other workflow binds and runs one entry at a time, yielding each
+        # result before the next entry starts. Compiled trajectories pack the
+        # first entry and patch later entries' gate matrices; the Python
+        # workflow executes each bound plan like an ordinary run.
         packed: _NumbaTrajectoryExecution | None = None
-        results: list[RawResult[np.ndarray]] = []
         for bound in _bind_parameter_batch(plan, context.system_dims):
             if policy.workflow != "numba_trajectories":
-                results.append(
-                    self._dispatch_by_shot_strategy(
-                        bound, context, policy, initial_state
-                    )
+                yield self._dispatch_by_shot_strategy(
+                    bound, context, policy, initial_state
                 )
                 continue
             if packed is None:
@@ -534,12 +534,9 @@ class NumbaSVEngine(_NdarrayEngine):
                 payload = _patch_gate_matrices(
                     packed, bound, positions, self._matrix_structures.resolve
                 )
-            results.append(
-                self.execute_payload(
-                    context, payload, policy, initial_state=initial_state
-                )
+            yield self.execute_payload(
+                context, payload, policy, initial_state=initial_state
             )
-        return results
 
     def _build_apply_layout(
         self,

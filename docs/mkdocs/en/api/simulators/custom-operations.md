@@ -44,8 +44,6 @@ result = simulator.run(
 print(result.get_counts())  # {"2": 4}
 ```
 
-For an operation that also changes quantum state and occupancy, see
-[`examples/custom_loss.py`](https://github.com/spaceqat/fatqat/blob/main/examples/custom_loss.py).
 To extend the atom-array profile, start with `AtomArraySimulator().implementation_map`.
 
 ## State and execution

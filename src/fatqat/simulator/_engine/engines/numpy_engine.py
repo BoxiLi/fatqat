@@ -1,8 +1,8 @@
 """NumPy engines for the matrix backend family.
 
 `NumpySVEngine` (statevector) and `NumpyDMEngine` (density matrix) are the
-two *state* `MatrixEngine` implementations. `MatrixEngine` owns shared plan
-materialization and Python execution; `_NdarrayEngine` supplies NumPy
+two *state* `MatrixEngine` implementations. `MatrixEngine` owns shared payload
+preparation and Python execution; `_NdarrayEngine` supplies NumPy
 initialization and expectations. Measurement sequencing uses explicit state
 and runtime-selected numerical functions. Each leaf contributes its numerical
 operations and explicit capabilities. Engine-owned selection determines the
@@ -131,7 +131,7 @@ class NumpySVEngine(_NdarrayEngine):
         supports_process_shots=True,
     )
 
-    def _plan_execution(
+    def _select_policy(
         self,
         plan: Sequence[ResolvedStep],
         *,
@@ -194,7 +194,7 @@ class NumpyDMEngine(_NdarrayEngine):
         supports_process_shots=True,
     )
 
-    def _plan_execution(
+    def _select_policy(
         self,
         plan: Sequence[ResolvedStep],
         *,

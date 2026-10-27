@@ -145,13 +145,13 @@ def _counts(engine_cls, plan, dims, n_clbits, shots, seed, request):
         worker_limit=1,
         fusion=False,
     )
-    payload = simulator.materialize_execution(
+    payload = simulator.prepare_payload(
         tuple(plan),
         system_dims=context.system_dims,
         n_clbits=context.n_clbits,
         policy=policy,
     )
-    raw = simulator.execute_in_process(
+    raw = simulator.execute_payload(
         context,
         payload,
         policy,

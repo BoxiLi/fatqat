@@ -5,7 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from functools import partial
 from typing import Any, Generic
@@ -21,6 +21,7 @@ from ..._execution_contract import (
 from ...._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    ApplyParametricMatrixStep,
     MeasurementStep,
     ResolvedStep,
 )
@@ -28,6 +29,7 @@ from ....result import reduce_to_counts
 from .._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
 )
+from ..binding import _bind_parameter_batch
 from ..parallel import _run_shots_in_processes
 from ..state import EvolutionState, QuantumDataT
 from ..workflows.python_workflow import (
@@ -98,7 +100,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         return self._capabilities
 
     @abstractmethod
-    def _plan_execution(
+    def _select_policy(
         self,
         plan: Sequence[ResolvedStep],
         *,
@@ -131,12 +133,12 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
     def _retain_step_caches(self, plan: tuple[ResolvedStep, ...]) -> None:
         """Retain only the effective plan's identity-keyed step resolutions.
 
-        Materialization calls this before resolving or compiling the plan.
+        Payload preparation calls this before resolving or compiling the plan.
         Shot initialization leaves these entries intact for trajectory reuse.
         Engines without step caches have nothing to prune.
         """
 
-    def materialize_execution(
+    def prepare_payload(
         self,
         plan: tuple[ResolvedStep, ...],
         *,
@@ -204,17 +206,69 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
-    ) -> RawResult[QuantumDataT]:
-        """Plan, materialize, and execute one requested evolution."""
-        policy = self._plan_execution(
-            plan,
+    ) -> Iterator[RawResult[QuantumDataT]]:
+        """Bind and execute a plan for every entry of its parameter batch.
+
+        A plan without parametric steps is a batch of one; a value-injected
+        sweep plan has one entry per set of parameter values. Results are
+        yielded in batch order as each entry finishes, so a caller that
+        consumes them one at a time keeps one entry's state alive. The policy
+        reads only step kinds and run settings, so it is planned once from the
+        first entry; each bound plan then executes like an ordinary plan.
+        """
+        policy: ExecutionPolicy | None = None
+        for bound in _bind_parameter_batch(plan, context.system_dims):
+            if policy is None:
+                policy = self._select_policy(
+                    bound,
+                    context=context,
+                    simulation_config=simulation_config,
+                    initial_state=initial_state,
+                )
+            yield self._dispatch_by_shot_strategy(bound, context, policy, initial_state)
+
+    def continue_from_states(
+        self,
+        tail: tuple[ResolvedStep, ...],
+        states: Sequence[EvolutionState[QuantumDataT]],
+        *,
+        context: _RunContext,
+        simulation_config: SimulationConfig,
+    ) -> list[RawResult[QuantumDataT]]:
+        """Continue already-evolved states with one shared concrete tail.
+
+        Sampled expectations evolve each batch entry once, then run every
+        term's measurement tail from those states. The tail is the same for
+        all states, so its policy is selected once from the first state and
+        its payload prepared once. ``tail`` has no parametric steps, and
+        ``states`` come from one plan, so they share their classical layout.
+        The selected policy is followed as in any run: a tail that needs
+        per-shot evolution (from states with atom occupancy) may run its shots
+        in worker processes, which prepare their own payloads per state.
+        """
+        policy = self._select_policy(
+            tail,
             context=context,
             simulation_config=simulation_config,
-            initial_state=initial_state,
+            initial_state=states[0],
         )
-        return self._execute_plan(plan, context, policy, initial_state)
+        if policy.shot_strategy == "processes":
+            return [
+                self._dispatch_by_shot_strategy(tail, context, policy, state)
+                for state in states
+            ]
+        payload = self.prepare_payload(
+            tail,
+            system_dims=context.system_dims,
+            n_clbits=context.n_clbits,
+            policy=policy,
+        )
+        return [
+            self.execute_payload(context, payload, policy, initial_state=state)
+            for state in states
+        ]
 
-    def execute_expectation(
+    def expectation_values(
         self,
         plan: tuple[ResolvedStep, ...],
         observables: Sequence[tuple[tuple[float, tuple[tuple[int, str], ...]], ...]],
@@ -222,40 +276,61 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         context: _RunContext,
         simulation_config: SimulationConfig,
         initial_state: EvolutionState[QuantumDataT],
-    ) -> tuple[float, ...]:
-        """Evolve and contract Pauli sums within the selected runtime policy.
+    ) -> list[tuple[float, ...]]:
+        """Evolve every parameter entry and contract Pauli sums on its state.
 
-        Empty observables validate execution controls without evolving a state.
+        Returns one tuple of values per entry, in batch order. Empty
+        observables validate execution controls without evolving a state.
         """
-        policy = self._plan_execution(
+        policy = self._select_policy(
             plan,
             context=context,
             simulation_config=simulation_config,
             initial_state=initial_state,
         )
         if not observables:
-            return ()
-        raw = self._execute_plan(plan, context, policy, initial_state)
-        if raw.state is None:
-            raise RuntimeError("expectation execution returned no state")
-        return self._expectation_values(raw.state, observables, policy=policy)
+            return []
+        values = []
+        # Contract each entry as it is yielded, so only one evolved state is
+        # alive at a time; the caller keeps only the scalar values. Unlike
+        # `Simulator._execute_plan`, which collects every entry first, this
+        # interleaves engine runs with contraction, which measured ~10-20%
+        # slower for small (6-qubit) states.
+        for raw in self.execute(
+            plan,
+            context=context,
+            simulation_config=simulation_config,
+            initial_state=initial_state,
+        ):
+            if raw.state is None:
+                raise RuntimeError("expectation execution returned no state")
+            values.append(
+                self._expectation_values(raw.state, observables, policy=policy)
+            )
+        return values
 
-    def _execute_plan(
+    def _dispatch_by_shot_strategy(
         self,
         plan: tuple[ResolvedStep, ...],
         context: _RunContext,
         policy: ExecutionPolicy,
         initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
-        """Materialize and dispatch an engine-selected execution policy."""
+        """Execute a plan under ``policy``: here or in worker processes.
+
+        In-process shot strategies prepare a payload and execute it here; the
+        process strategy runs shots in workers and reduces their rows.
+        """
+        if any(isinstance(step, ApplyParametricMatrixStep) for step in plan):
+            raise RuntimeError("parametric steps must be bound before execution")
         if policy.shot_strategy in ("none", "serial", "threads"):
-            payload = self.materialize_execution(
+            payload = self.prepare_payload(
                 plan,
                 system_dims=context.system_dims,
                 n_clbits=context.n_clbits,
                 policy=policy,
             )
-            return self.execute_in_process(
+            return self.execute_payload(
                 context, payload, policy, initial_state=initial_state
             )
 
@@ -284,7 +359,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         """
         return partial(type(self), name=self.name)
 
-    def execute_in_process(
+    def execute_payload(
         self,
         context: _RunContext,
         payload: Any,
@@ -292,12 +367,12 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         *,
         initial_state: EvolutionState[QuantumDataT],
     ) -> RawResult[QuantumDataT]:
-        """Execute a materialized state or operator plan through Python."""
+        """Execute a prepared state or operator payload here through Python."""
         assert policy.shot_strategy != "processes"
         self.configure_system(context.system_dims, context.n_clbits)
         with self._execution_scope(policy):
             state_requested = context.request.final_state
-            rows = None
+            outcomes = None
             if policy.execution_path == "per_shot":
                 rows = self._run_per_shot(
                     payload,
@@ -308,6 +383,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                         or context.request.final_classical_state
                     ),
                 )
+                outcomes = reduce_to_counts(rows) if rows is not None else None
             else:
                 rng = np.random.default_rng(context.seed)
                 self.initialize(
@@ -327,16 +403,14 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                 else:
                     assert policy.execution_path == "single_pass"
                     assert self._evolution_state is not None
-                    rows = _run_single_pass(
+                    outcomes = _run_single_pass(
                         payload,
                         self._evolution_state,
                         context,
                         rng,
                         state_requested=state_requested,
                     )
-            outcome_keys, outcome_counts = (
-                reduce_to_counts(rows) if rows is not None else (None, None)
-            )
+            outcome_keys, outcome_counts = outcomes or (None, None)
             state = self.export_state() if state_requested else None
             classical_state = None
             if context.request.final_classical_state:
@@ -352,7 +426,7 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                 classical_state=classical_state,
             )
 
-    def execute_shot_batch(
+    def execute_worker_shots(
         self,
         context: _RunContext,
         payload: Any,

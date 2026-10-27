@@ -24,7 +24,7 @@ from ...._backends.steps import (
     ResetStep,
     ResolvedStep,
 )
-from ....result import _decode_engine_indices_to_clbit_rows
+from ....result import _decode_engine_indices_to_clbit_rows, reduce_to_counts
 from ..._execution_contract import _RunContext
 from ...custom_operations import ExecutionContext
 from ..state import EvolutionState, QuantumDataT
@@ -163,8 +163,8 @@ def _run_single_pass(
     rng: np.random.Generator,
     *,
     state_requested: bool,
-) -> np.ndarray | None:
-    """Evolve initialized storage once and return requested classical samples.
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Evolve initialized storage once and return requested outcome counts.
 
     The ``ResetStep`` and ``ApplyChannelStep`` branches are only reachable
     under density-matrix semantics, where both are deterministic channels;
@@ -197,24 +197,34 @@ def _run_single_pass(
             rng,
         )
 
-    rows = None
-    if context.request.counts:
-        if not measurements:
-            indices = np.zeros(context.shots, dtype=int)
-        elif collapsed_index is not None:
-            indices = np.array([collapsed_index], dtype=int)
-        else:
-            indices = _sample_indices(state, execution.measurement, context.shots, rng)
-        rows = _decode_engine_indices_to_clbit_rows(
-            indices, measurements, context.system_dims, context.n_clbits
-        )
-        if classical.clbits is not None:
-            written = {clbit for _subsystem, clbit in measurements}
-            for clbit, digit in enumerate(classical.clbits):
-                if clbit not in written:
-                    rows[:, clbit] = digit
-        _apply_measurement_reporting(rows, _reporting_by_clbit(execution.plan), rng)
-    return rows
+    if not context.request.counts:
+        return None
+    if not measurements:
+        indices = np.zeros(context.shots, dtype=int)
+    elif collapsed_index is not None:
+        indices = np.array([collapsed_index], dtype=int)
+    else:
+        indices = _sample_indices(state, execution.measurement, context.shots, rng)
+    reporting = _reporting_by_clbit(execution.plan)
+    # Without readout confusion, shots with the same sampled index report the
+    # same digits, so decode each distinct index once. This is faster when
+    # outcomes repeat (many shots, few measured subsystems); when nearly every
+    # shot is unique it costs one extra sort. Confusion draws per shot.
+    index_counts = None
+    if all(confusion is None for _map, confusion in reporting.values()):
+        indices, index_counts = np.unique(indices, return_counts=True)
+    rows = _decode_engine_indices_to_clbit_rows(
+        indices, measurements, context.system_dims, context.n_clbits
+    )
+    if classical.clbits is not None:
+        written = {clbit for _subsystem, clbit in measurements}
+        for clbit, digit in enumerate(classical.clbits):
+            if clbit not in written:
+                rows[:, clbit] = digit
+    _apply_measurement_reporting(rows, reporting, rng)
+    # Indices differing only in unmeasured subsystems report the same key;
+    # weighting by index counts merges them.
+    return reduce_to_counts(rows, index_counts)
 
 
 def _run_one_shot(

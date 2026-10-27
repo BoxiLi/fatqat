@@ -8,6 +8,7 @@ from .matrix_map import (
     FixedMatrix,
     MatrixImplementationMap,
     _DimMatrix,
+    _BatchedBuilder,
     _KeyedImplementation,
     _wrap_rule,
 )
@@ -49,6 +50,17 @@ from .matrices import (
     _subspace_ry_rule,
     _subspace_rz_rule,
     _swap_levels_rule,
+    _cphase_batch_rule,
+    _phase_batch_rule,
+    _rx_batch_rule,
+    _ry_batch_rule,
+    _rz_batch_rule,
+    _subspace_rx_batch_rule,
+    _subspace_ry_batch_rule,
+    _subspace_rz_batch_rule,
+    _u_batch_rule,
+    _u1_batch_rule,
+    _u2_batch_rule,
     sum_matrix,
 )
 
@@ -93,6 +105,23 @@ _DEFAULT_RULES = (
     (ops.CClock, _cclock_rule, K.CCLOCK),
 )
 
+# Batched twins of the parametric built-in rules, used by sweep replay. Each
+# reads the same fields as its scalar rule in `_DEFAULT_RULES`.
+_BATCHED_RULES: dict[type[ops.Operation], _BatchedBuilder] = {
+    ops.RX: _rx_batch_rule,
+    ops.RY: _ry_batch_rule,
+    ops.RZ: _rz_batch_rule,
+    ops.Phase: _phase_batch_rule,
+    ops.U: _u_batch_rule,
+    ops.U1: _u1_batch_rule,
+    ops.U2: _u2_batch_rule,
+    ops.U3: _u_batch_rule,
+    ops.CPhase: _cphase_batch_rule,
+    ops.SubspaceRX: _subspace_rx_batch_rule,
+    ops.SubspaceRY: _subspace_ry_batch_rule,
+    ops.SubspaceRZ: _subspace_rz_batch_rule,
+}
+
 
 def default_matrix_implementation_map() -> MatrixImplementationMap:
     """Return a new map containing built-in matrix gates and finite channel rules.
@@ -109,7 +138,13 @@ def default_matrix_implementation_map() -> MatrixImplementationMap:
     _add_default_channel_rules(m)
     for op, rule, key in _DEFAULT_RULES:
         op_cls = _resolve_operation_class(op)
-        m.add(op, _KeyedImplementation(_wrap_rule(op_cls, rule), key))
+        implementation = _KeyedImplementation(
+            _wrap_rule(op_cls, rule),
+            key,
+            op_cls=op_cls,
+            batch=_BATCHED_RULES.get(op_cls),
+        )
+        m.add(op, implementation)
     return m
 
 

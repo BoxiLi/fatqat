@@ -804,3 +804,19 @@ def test_default_map_cclock_unequal_dims_reads_correct_targets():
     omega_2 = np.exp(2j * np.pi / 2)
     expected_diag = [omega_2 ** ((i * k * 1) % 2) for i in range(3) for k in range(2)]
     assert np.allclose(np.diag(got), expected_diag)
+
+
+def test_batched_sweep_rule_applies_only_to_its_registered_class():
+    class _SubclassRX(ops.RX):
+        pass
+
+    impl_map = default_matrix_implementation_map()
+    rx_rule = impl_map.implementation_for(ops.RX)
+    assert rx_rule._batch_builder(ops.RX(0.1)) is not None
+    # Re-registering the keyed rule for another class keeps its kernel key but
+    # not its batched twin, which may read fields the subclass redefines.
+    assert rx_rule._batch_builder(_SubclassRX(0.1)) is None
+    assert impl_map.implementation_for(ops.H)._batch_builder(ops.H) is None
+    custom = MatrixImplementationMap()
+    custom.add(ops.RX, lambda op: np.eye(2, dtype=complex))
+    assert custom.implementation_for(ops.RX)._batch_builder(ops.RX(0.1)) is None

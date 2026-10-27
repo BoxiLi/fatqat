@@ -6,9 +6,10 @@ pulse-resolved physical simulation, use the models in ``fatqat.emulator``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
+from itertools import batched, chain
 from typing import Any
 
 import numpy as np
@@ -21,7 +22,6 @@ from .._expectation import (
     _reduce_outcome_counts,
 )
 from .._parameter_binding import (
-    _discover_parameters,
     _normalize_parameter_batch,
     _raise_for_unbound_parameters,
 )
@@ -75,6 +75,7 @@ from .._backends.view_normalization import ProgramInstruction, _break_grouped_op
 from .._backends.steps import (
     ApplyChannelStep,
     ApplyMatrixStep,
+    ApplyParametricMatrixStep,
     CustomOperationStep,
     MeasurementStep,
     ResetStep,
@@ -114,12 +115,15 @@ _METHOD_SPECS: dict[str, _MethodSpec] = {
     ),
 }
 
+# Base states a sampled expectation sweep keeps alive while its terms sample.
+_SAMPLED_BASE_STATE_BYTES = 256 * 2**20
+
 
 @dataclass(frozen=True, slots=True)
 class _PreparedExecution:
     """Program execution facts shared by every Simulator consumer."""
 
-    plan: tuple[ResolvedStep, ...] | planning._ParametricPlan
+    plan: tuple[ResolvedStep, ...]
     facts: _PlanFacts
     lowering: _LoweringContext
     simulation: _SimulationConfig
@@ -417,8 +421,16 @@ class Simulator:
         program: Program,
         *,
         context: _LoweringContext | None = None,
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
     ) -> tuple[tuple[ResolvedStep, ...], _PlanFacts]:
-        """Lower and freeze once, then derive common plan facts."""
+        """Lower and freeze once, then derive common plan facts.
+
+        With ``parameter_values`` (a sweep), parameter-holding gates lower to
+        `ApplyParametricMatrixStep` values carrying their value columns, which
+        the engine binds per row. Plan facts read only step kinds, indices and
+        conditions, so they are valid for every row. Without it, the program
+        must be fully bound.
+        """
         if context is None:
             resource_layout = self._resolve_resource_layout(program)
             context = _LoweringContext(
@@ -429,28 +441,11 @@ class Simulator:
                 classical_allocation=_ClassicalAllocation.from_program(program),
             )
         operations = _break_grouped_operations(program._instructions)
-        plan = tuple(self._lower(operations, context))
-        return plan, self._analyze_lowered_plan(plan)
-
-    def _prepare_parametric_program(
-        self,
-        program: Program,
-        *,
-        context: _LoweringContext,
-        param_order: tuple[Parameter, ...],
-    ) -> tuple[planning._ParametricPlan, _PlanFacts]:
-        """Lower once for a sweep, deferring parameter-holding gates.
-
-        The sweep counterpart of ``_prepare_program``: the same single lowering
-        pass and plan-fact analysis, but parameter-holding operations become
-        matrix recipes inside a `planning._ParametricPlan` that
-        ``run_sweep`` materializes once per θ row. Plan facts read only step
-        kinds, indices and conditions, so they are valid for every row.
-        """
-        operations = _break_grouped_operations(program._instructions)
+        if parameter_values is None:
+            _raise_for_unbound_parameters(program._instructions)
         # pylint: disable-next=fixme
         # TODO: Support custom operations in run_sweep.
-        if any(
+        elif any(
             isinstance(step, _AppliedOperation)
             and isinstance(step.operation, CustomOperation)
             for step in operations
@@ -458,10 +453,10 @@ class Simulator:
             raise UnsupportedOperationError(
                 "run_sweep does not support custom operations"
             )
-        steps = tuple(self._lower(operations, context, param_order=param_order))
-        return planning._ParametricPlan(steps, param_order), self._analyze_lowered_plan(
-            steps
-        )
+        plan = tuple(self._lower(operations, context))
+        if parameter_values is not None:
+            plan = planning._inject_parameter_values(plan, parameter_values)
+        return plan, self._analyze_lowered_plan(plan)
 
     def run(
         self,
@@ -587,9 +582,11 @@ class Simulator:
         config, context = self._prepare_run(
             execution, shots=shots, result_config=result_config
         )
-        plan = execution.plan
-        assert isinstance(plan, tuple), "run() lowers fully bound programs only"
-        return self._execute_plan(plan, execution, config, context)
+        job = self._execute_plan(execution, config, context)
+        if job.status != "DONE":
+            return job
+        (result,) = job.result()
+        return Job(status="DONE", result=result)
 
     def run_sweep(
         self,
@@ -607,10 +604,12 @@ class Simulator:
         Single parameters accept shape ``(N,)`` and parameter vectors of
         length ``M`` accept shape ``(N, M)``. All entries must use the same
         ``N``. Rows run in input order with the same options. The batch is
-        validated before execution. One explicit
+        validated before execution and stored as NumPy arrays, so a custom
+        matrix rule may receive a row's value as a NumPy scalar. One explicit
         seed is reused for every row, so sampled row errors can be correlated.
-        Binding and row-validation errors raise directly. Execution errors
-        follow ``run()``'s error-handling policy; no partial list is exposed.
+        Batch validation errors raise directly. Failures while binding or
+        executing any row follow ``run()``'s error-handling policy; no partial
+        list is exposed.
 
         Args:
             program: Parameterized template program.
@@ -675,7 +674,7 @@ class Simulator:
             BackendValidationError: If a bound row or forwarded run option
                 fails normal Simulator validation.
             MatrixImplementationError: If a matrix rule cannot build an
-                operation for one row.
+                operation for one row and ``error_handling`` is ``"raise"``.
             UnsupportedOperationError: If the program contains custom operations
                 or a row contains an operation the backend cannot run.
 
@@ -699,37 +698,22 @@ class Simulator:
             >>> ["statevector" in result.available_data for result in results]
             [True, True]
         """
-        rows = _normalize_parameter_batch(program._instructions, bindings)
+        columns = _normalize_parameter_batch(program._instructions, bindings)
         # Structural resolution and lowering happen once for the whole batch,
         # on the same direct-raise validation path as run(): layout,
         # allocation, noise-selector validation, and rule selection read
         # operation types and targets only, so they cannot depend on θ values.
-        param_order = _discover_parameters(program._instructions)
         execution = self._prepare_execution(
             program,
             resource_layout=resource_layout,
             initial_state=initial_state,
             simulation_config=simulation_config,
-            param_order=param_order,
+            parameter_values=columns,
         )
         config, context = self._prepare_run(
             execution, shots=shots, result_config=result_config
         )
-        template = execution.plan
-        assert isinstance(template, planning._ParametricPlan)
-        thetas = [tuple(row[parameter] for parameter in param_order) for row in rows]
-        results: list[Result] = []
-        # Rule and shape failures raise directly from the iteration, exactly
-        # as they raise directly from lowering in run().
-        for point_plan in template.resolve_rows(thetas):
-            point_job = self._execute_plan(point_plan, execution, config, context)
-            try:
-                results.append(point_job.result())
-            except Exception as exc:  # execution-stage failure
-                if execution.simulation.error_handling == "raise":
-                    raise
-                return Job(status="ERROR", error=exc)
-        return Job(status="DONE", result=results)
+        return self._execute_plan(execution, config, context)
 
     def _prepare_run(
         self,
@@ -742,7 +726,7 @@ class Simulator:
 
         Called once per run or sweep batch on the direct-raise validation path.
         The returned settings do not depend on parameter values; sweeps reuse
-        them while materializing the execution plan separately for each row.
+        them while the engine binds and executes each row.
         """
         config = _normalize_config(
             result_config,
@@ -767,7 +751,7 @@ class Simulator:
         resource_layout: ResourceLayout | None,
         initial_state: Any,
         simulation_config: dict[str, Any] | None,
-        param_order: tuple[Parameter, ...] | None = None,
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
         simulation = _normalize_config(
@@ -806,13 +790,9 @@ class Simulator:
             engine_allocation=engine_allocation,
             classical_allocation=classical_allocation,
         )
-        plan: tuple[ResolvedStep, ...] | planning._ParametricPlan
-        if param_order is None:
-            plan, facts = self._prepare_program(program, context=lowering)
-        else:
-            plan, facts = self._prepare_parametric_program(
-                program, context=lowering, param_order=param_order
-            )
+        plan, facts = self._prepare_program(
+            program, context=lowering, parameter_values=parameter_values
+        )
         prepared = _PreparedExecution(
             plan=plan,
             facts=facts,
@@ -846,13 +826,21 @@ class Simulator:
         *,
         shots: int,
         simulation_config: dict[str, Any] | None,
-    ) -> Job[_ExpectationExecution]:
-        """Execute one private exact or sampled expectation request."""
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
+    ) -> Job[list[_ExpectationExecution]]:
+        """Execute a private exact or sampled expectation request per entry.
+
+        ``parameter_values`` are a sweep's validated columns; without them the
+        program is one fully bound entry. The program is prepared once and
+        every entry evolves in one engine call; sampled values then run each
+        term's measurement tail from every entry's state.
+        """
         execution = self._prepare_execution(
             program,
             resource_layout=None,
             initial_state=None,
             simulation_config=simulation_config,
+            parameter_values=parameter_values,
         )
         # pylint: disable-next=fixme
         # TODO: Support custom operations
@@ -865,25 +853,35 @@ class Simulator:
         )
         try:
             if shots == 0 or not bound_occurrences:
-                values = self._execute_exact_expectation(
-                    execution, constants, bound_occurrences, shots=shots
-                )
-                standard_errors = (0.0,) * len(values)
+                entries = [
+                    (values, (0.0,) * len(values))
+                    for values in self._execute_exact_expectation(
+                        execution,
+                        constants,
+                        bound_occurrences,
+                        shots=shots,
+                        n_entries=(
+                            len(next(iter(parameter_values.values())))
+                            if parameter_values
+                            else 1
+                        ),
+                    )
+                ]
             else:
-                values, standard_errors = self._execute_sampled_expectation(
-                    execution,
-                    constants,
-                    bound_occurrences,
-                    shots=shots,
+                entries = self._execute_sampled_expectation(
+                    execution, constants, bound_occurrences, shots=shots
                 )
             return Job(
                 status="DONE",
-                result=_ExpectationExecution(
-                    values,
-                    standard_errors,
-                    method=self._state_field,
-                    runtime=self._runtime,
-                ),
+                result=[
+                    _ExpectationExecution(
+                        values,
+                        standard_errors,
+                        method=self._state_field,
+                        runtime=self._runtime,
+                    )
+                    for values, standard_errors in entries
+                ],
             )
         except Exception as exc:
             if execution.simulation.error_handling == "raise":
@@ -899,8 +897,6 @@ class Simulator:
         shots: int,
     ) -> tuple[tuple[float, ...], tuple[_BoundExpectationOccurrence, ...]]:
         """Bind observables and prepare expectation work from a lowered program."""
-        plan = execution.plan
-        assert isinstance(plan, tuple), "expectation runs lower bound programs only"
         if self._engine.capabilities.quantum.is_operator:
             raise UnsupportedOperationError(
                 f"method={self._state_field!r} computes an operator, not a state "
@@ -992,10 +988,8 @@ class Simulator:
     def _execute_expectation_base(
         self,
         execution: _PreparedExecution,
-    ) -> EvolutionState:
-        """Execute once and retain quantum and classical initialization together."""
-        plan = execution.plan
-        assert isinstance(plan, tuple)
+    ) -> Iterator[EvolutionState]:
+        """Evolve every entry once and yield its quantum and classical state."""
         context = _RunContext(
             request=_ResultRequest(
                 counts=False, final_state=True, final_classical_state=True
@@ -1005,15 +999,15 @@ class Simulator:
             shots=1,
             seed=execution.simulation.seed,
         )
-        raw = self._engine.execute(
-            plan=plan,
+        for raw in self._engine.execute(
+            execution.plan,
             context=context,
             simulation_config=execution.simulation,
             initial_state=execution.initial_state,
-        )
-        if raw.state is None or raw.classical_state is None:
-            raise RuntimeError("expectation base execution returned no state")
-        return EvolutionState(quantum=raw.state, classical=raw.classical_state)
+        ):
+            if raw.state is None or raw.classical_state is None:
+                raise RuntimeError("expectation base execution returned no state")
+            yield EvolutionState(quantum=raw.state, classical=raw.classical_state)
 
     def _execute_exact_expectation(
         self,
@@ -1022,10 +1016,10 @@ class Simulator:
         bound_occurrences: tuple[_BoundExpectationOccurrence, ...],
         *,
         shots: int,
-    ) -> tuple[float, ...]:
-        """Contract every observable against one backend-evolved state."""
+        n_entries: int,
+    ) -> list[tuple[float, ...]]:
+        """Contract every observable against each entry's backend-evolved state."""
         plan = execution.plan
-        assert isinstance(plan, tuple)
         terms_by_observable = [[] for _constant in constants]
         for bound in bound_occurrences:
             terms_by_observable[bound.occurrence.observable_index].append(
@@ -1039,7 +1033,7 @@ class Simulator:
             shots=1 if has_terms else shots,
             seed=execution.simulation.seed,
         )
-        values = self._engine.execute_expectation(
+        values = self._engine.expectation_values(
             plan,
             tuple(tuple(terms) for terms in terms_by_observable) if has_terms else (),
             context=context,
@@ -1047,10 +1041,14 @@ class Simulator:
             initial_state=execution.initial_state,
         )
         if not has_terms:
-            return constants
-        return tuple(
-            constant + value for constant, value in zip(constants, values, strict=True)
-        )
+            return [constants] * n_entries
+        return [
+            tuple(
+                constant + value
+                for constant, value in zip(constants, entry_values, strict=True)
+            )
+            for entry_values in values
+        ]
 
     def _execute_sampled_expectation(
         self,
@@ -1059,33 +1057,36 @@ class Simulator:
         bound_occurrences: tuple[_BoundExpectationOccurrence, ...],
         *,
         shots: int,
-    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
-        """Execute native outcomes for each independent term occurrence."""
-        plan = execution.plan
-        assert isinstance(plan, tuple)
-        base_state = (
-            self._execute_expectation_base(execution)
-            if not execution.facts.stochastic_final_state
-            else None
-        )
-        request = _ResultRequest(counts=True, final_state=False)
-        statistics = []
+    ) -> list[tuple[tuple[float, ...], tuple[float, ...]]]:
+        """Sample each term occurrence for every entry; one result per entry.
+
+        A deterministic plan evolves every entry once and runs each term's
+        measurement tail from those states, a bounded chunk of entries at a
+        time. A stochastic plan reruns the whole plan with each tail. Each
+        term has one seed, shared by entries.
+        """
+
+        def with_scratch(
+            initial: EvolutionState, bound: _BoundExpectationOccurrence
+        ) -> EvolutionState:
+            # The tail measures into scratch clbits after the program's own.
+            clbits = initial.classical.clbits
+            if clbits is None:
+                return initial
+            return replace(
+                initial,
+                classical=replace(
+                    initial.classical,
+                    clbits=clbits + [0] * len(bound.engine_factors),
+                ),
+            )
+
         child_seeds = np.random.SeedSequence(execution.simulation.seed).spawn(
             len(bound_occurrences)
         )
-        for child_seed, bound in zip(child_seeds, bound_occurrences, strict=True):
-            initial = base_state if base_state is not None else execution.initial_state
-            clbits = initial.classical.clbits
-            if clbits is not None:
-                initial = replace(
-                    initial,
-                    classical=replace(
-                        initial.classical,
-                        clbits=clbits + [0] * len(bound.engine_factors),
-                    ),
-                )
-            context = _RunContext(
-                request=request,
+        contexts = [
+            _RunContext(
+                request=_ResultRequest(counts=True, final_state=False),
                 system_dims=tuple(execution.lowering.engine_allocation.system_dims),
                 n_clbits=(
                     execution.lowering.classical_allocation.n_clbits
@@ -1094,63 +1095,112 @@ class Simulator:
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
             )
-            sample_plan = bound.tail if base_state is not None else plan + bound.tail
-            raw = self._engine.execute(
-                plan=sample_plan,
-                context=context,
-                simulation_config=execution.simulation,
-                initial_state=initial,
-            )
-            if raw.outcome_keys is None or raw.outcome_counts is None:
-                raise RuntimeError("sampled expectation execution returned no outcomes")
-            measured_rows = raw.outcome_keys[:, bound.scratch_indices]
-            statistics.append(
-                _reduce_outcome_counts(
-                    bound.engine_factors,
-                    zip(measured_rows, raw.outcome_counts, strict=True),
-                )
-            )
-        return _combine_term_statistics(
-            constants,
-            tuple(bound.occurrence for bound in bound_occurrences),
-            statistics,
-            shots=shots,
-        )
+            for child_seed, bound in zip(child_seeds, bound_occurrences, strict=True)
+        ]
+
+        def sample_terms(
+            base_states: Sequence[EvolutionState] | None,
+        ) -> list[list[tuple[int, int]]]:
+            """Return per-entry term statistics, from base states if given."""
+            statistics: list[list[tuple[int, int]]] = []
+            for context, bound in zip(contexts, bound_occurrences, strict=True):
+                if base_states is not None:
+                    raws = self._engine.continue_from_states(
+                        bound.tail,
+                        [with_scratch(state, bound) for state in base_states],
+                        context=context,
+                        simulation_config=execution.simulation,
+                    )
+                else:
+                    raws = list(
+                        self._engine.execute(
+                            execution.plan + bound.tail,
+                            context=context,
+                            simulation_config=execution.simulation,
+                            initial_state=with_scratch(execution.initial_state, bound),
+                        )
+                    )
+                if not statistics:
+                    statistics = [[] for _raw in raws]
+                for entry, raw in zip(statistics, raws, strict=True):
+                    if raw.outcome_keys is None or raw.outcome_counts is None:
+                        raise RuntimeError(
+                            "sampled expectation execution returned no outcomes"
+                        )
+                    measured_rows = raw.outcome_keys[:, bound.scratch_indices]
+                    entry.append(
+                        _reduce_outcome_counts(
+                            bound.engine_factors,
+                            zip(measured_rows, raw.outcome_counts, strict=True),
+                        )
+                    )
+            return statistics
+
+        if execution.facts.stochastic_final_state:
+            # Noise, mid-circuit measurement, or reset gives each shot its own
+            # final state, so no evolved state can be shared by the shots.
+            # Every term reruns the whole plan with its tail instead.
+            statistics = sample_terms(None)
+        else:
+            # Every shot of a row ends in the same state (density-matrix noise
+            # included), so each row evolves once and every term's tail
+            # continues from it. Keep a bounded number of base states alive:
+            # each chunk is evolved, sampled by every term, then released.
+            # Small states fit in one chunk, so their terms run back to back.
+            states = self._execute_expectation_base(execution)
+            first = next(states)
+            rows = max(1, _SAMPLED_BASE_STATE_BYTES // first.quantum.nbytes)
+            statistics = []
+            for chunk in batched(chain([first], states), rows):
+                statistics.extend(sample_terms(chunk))
+        occurrences = tuple(bound.occurrence for bound in bound_occurrences)
+        return [
+            _combine_term_statistics(constants, occurrences, entry, shots=shots)
+            for entry in statistics
+        ]
 
     def _execute_plan(
         self,
-        plan: tuple[ResolvedStep, ...],
         execution: _PreparedExecution,
         config: _SimulatorResultConfig,
         context: _RunContext,
-    ) -> Job[Result]:
-        """Execute one concrete plan under already-validated run settings.
+    ) -> Job[list[Result]]:
+        """Execute a prepared plan for every entry of its parameter batch.
 
-        ``plan`` is ``execution.plan`` for an ordinary run, or one row's
-        materialized plan in a sweep. Error handling controls whether engine
-        planning, execution, and result-assembly failures propagate or become
-        a failed job.
+        An ordinary run is a batch of one; a sweep has one entry per set of
+        parameter values. Error handling controls whether binding, engine planning,
+        execution, and result-assembly failures propagate or become a failed
+        job; no partial list is exposed.
         """
         try:
-            raw = self._engine.execute(
-                plan=plan,
-                context=context,
-                initial_state=execution.initial_state,
-                simulation_config=execution.simulation,
+            # Run every entry before assembling any result. Every result is
+            # returned, so consuming `execute` lazily saves no memory here, and
+            # interleaving assembly with execution measured ~5-10% slower
+            # for 6 qubit-circuit.
+            raws = list(
+                self._engine.execute(
+                    execution.plan,
+                    context=context,
+                    simulation_config=execution.simulation,
+                    initial_state=execution.initial_state,
+                )
             )
-            result = self._assemble_result(
-                raw=raw,
-                config=config,
-                simulation=execution.simulation,
-                lowering=execution.lowering,
-                request=context.request,
-                shots=context.shots,
-            )
-            return Job(status="DONE", result=result)
+            results = [
+                self._assemble_result(
+                    raw=raw,
+                    config=config,
+                    simulation=execution.simulation,
+                    lowering=execution.lowering,
+                    request=context.request,
+                    shots=context.shots,
+                )
+                for raw in raws
+            ]
         except Exception as exc:  # execution-stage failure
             if execution.simulation.error_handling == "raise":
                 raise
             return Job(status="ERROR", error=exc)
+        return Job(status="DONE", result=results)
 
     # --- validation (raises directly from run) ---
     def _validate_initial_state(
@@ -1314,9 +1364,7 @@ class Simulator:
         # Engine method support, such as measurement, reset, channel noise, and classical register.
         method = self._state_field
         if capabilities.quantum.is_operator:
-            plan = execution.plan
-            steps = plan.steps if isinstance(plan, planning._ParametricPlan) else plan
-            if any(isinstance(step, CustomOperationStep) for step in steps):
+            if any(isinstance(step, CustomOperationStep) for step in execution.plan):
                 raise UnsupportedOperationError(
                     "custom operations require statevector or density_matrix execution"
                 )
@@ -1431,9 +1479,7 @@ class Simulator:
         self,
         operations: Sequence[ProgramInstruction],
         context: _LoweringContext,
-        *,
-        param_order: tuple[Parameter, ...] | None = None,
-    ) -> list[ResolvedStep | planning._MatrixRecipe]:
+    ) -> list[ResolvedStep]:
         """Lower a program into an execution plan in one pass.
 
         Dispatches each instruction to matrix-planning helpers, threading this
@@ -1455,15 +1501,13 @@ class Simulator:
         `MeasurementStep`/`ResetStep` targets and conditions. Grouped
         frontend operations are expanded before this method is called.
 
-        ``param_order`` is the sweep's θ order. When given, a gate whose
-        fields hold `Parameter`s lowers to a `planning._MatrixRecipe` instead
-        of a concrete `ApplyMatrixStep`; ``None`` (every ordinary run) keeps
-        lowering fully concrete and rejects unbound parameters.
+        A gate whose fields hold `Parameter`s lowers to an
+        `ApplyParametricMatrixStep`; only sweeps lower such programs.
         """
         resource_layout = context.resource_layout
         engine_allocation = context.engine_allocation
         classical_allocation = context.classical_allocation
-        plan: list[ResolvedStep | planning._MatrixRecipe] = []
+        plan: list[ResolvedStep] = []
 
         for step in operations:
             if isinstance(step, Measurement):
@@ -1497,7 +1541,6 @@ class Simulator:
                             classical_allocation,
                             self._impl_map,
                             self._noise_model,
-                            param_order=param_order,
                         )
                     )
 
@@ -1505,14 +1548,14 @@ class Simulator:
 
     def _analyze_lowered_plan(
         self,
-        plan: Sequence[ResolvedStep | planning._MatrixRecipe],
+        plan: Sequence[ResolvedStep],
     ) -> _PlanFacts:
         """Translate one lowered plan into common execution semantics."""
         return self._analyze_common_plan_facts(plan)
 
     def _analyze_common_plan_facts(
         self,
-        plan: Sequence[ResolvedStep | planning._MatrixRecipe],
+        plan: Sequence[ResolvedStep],
         *,
         claimed_step_types: tuple[type[object], ...] = (),
     ) -> _PlanFacts:
@@ -1536,7 +1579,7 @@ class Simulator:
                 stochastic_final_state = True
                 continue
 
-            if isinstance(step, (ApplyMatrixStep, planning._MatrixRecipe)):
+            if isinstance(step, (ApplyMatrixStep, ApplyParametricMatrixStep)):
                 continue
             if isinstance(step, CustomOperationStep):
                 # Arbitrary callbacks may sample and reset even under DM semantics.

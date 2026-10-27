@@ -51,7 +51,6 @@ from ..registers import RegisterRef
 from ..resource_layout import DeviceOperand, ResourceLayout
 from ..result import (
     Result,
-    _ResultConfig,
     counts_dict_from_arrays,
 )
 from ._engine.engines.base import MatrixEngine
@@ -70,6 +69,7 @@ from ._execution_contract import (
     RawResult,
     _ResultRequest,
     _SimulationConfig,
+    _SimulatorResultConfig,
 )
 from .._backends.view_normalization import ProgramInstruction, _break_grouped_operations
 from .._backends.steps import (
@@ -169,10 +169,10 @@ class Simulator:
     """
 
     # Subclasses may replace this with a dataclass derived from
-    # ``_ResultConfig`` to expose hardware-specific result artifacts. The
-    # normalizer derives accepted keys from this schema, so unsupported fields
-    # fail before execution.
-    _result_config_cls: type[_ResultConfig] = _ResultConfig
+    # ``_SimulatorResultConfig`` to expose hardware-specific result artifacts.
+    # The normalizer derives accepted keys from this schema, so unsupported
+    # fields fail before execution.
+    _result_config_cls: type[_SimulatorResultConfig] = _SimulatorResultConfig
 
     # Subclasses may replace this with a dataclass derived from
     # ``_SimulationConfig`` for hardware-specific simulator controls. The
@@ -544,6 +544,11 @@ class Simulator:
                   suppresses it, and ``None`` enables it when that artifact is
                   deterministic. A requested stochastic state requires
                   ``shots == 1``.
+                - ``"final_classical_state"`` (``bool``, default ``False``):
+                  Whether to return one shot's final ``ClassicalState``
+                  (register digits and site occupancy). It is stochastic under
+                  the same conditions as the final state and then requires
+                  ``shots == 1``. Operator methods reject it.
 
         Returns:
             A completed ``Job`` whose result is a ``Result``.
@@ -651,6 +656,9 @@ class Simulator:
                   Method-native state or map. ``None`` enables it when the
                   result is deterministic; a requested stochastic state
                   requires ``shots == 1``.
+                - ``"final_classical_state"`` (``bool``, default ``False``):
+                  Each row's final ``ClassicalState``, with the same rules as
+                  ``run()``.
 
                 ``True`` requests a field and ``False`` suppresses it.
 
@@ -729,7 +737,7 @@ class Simulator:
         *,
         shots: int,
         result_config: dict[str, Any] | None,
-    ) -> tuple[_ResultConfig, _RunContext]:
+    ) -> tuple[_SimulatorResultConfig, _RunContext]:
         """Resolve direct results and shot requirements before execution.
 
         Called once per run or sweep batch on the direct-raise validation path.
@@ -1111,7 +1119,7 @@ class Simulator:
         self,
         plan: tuple[ResolvedStep, ...],
         execution: _PreparedExecution,
-        config: _ResultConfig,
+        config: _SimulatorResultConfig,
         context: _RunContext,
     ) -> Job[Result]:
         """Execute one concrete plan under already-validated run settings.
@@ -1214,7 +1222,7 @@ class Simulator:
             )
 
     def _validate_run_request(
-        self, config: _ResultConfig, shots: int, facts: _PlanFacts
+        self, config: _SimulatorResultConfig, shots: int, facts: _PlanFacts
     ) -> _ResultRequest:
         """Resolve result fields and validate their shot requirements."""
         if config.counts is True and self._engine.capabilities.quantum.is_operator:
@@ -1231,6 +1239,7 @@ class Simulator:
         request = _ResultRequest(
             counts=counts,
             final_state=final_state,
+            final_classical_state=config.final_classical_state,
         )
         requested_state = config.final_state is True
 
@@ -1260,6 +1269,18 @@ class Simulator:
             state_label=self._state_field,
             stochastic_sources=stochastic_sources,
         )
+        if request.final_classical_state:
+            if quantum.is_operator:
+                raise BackendValidationError(
+                    f"method={self._state_field!r} cannot produce a final classical "
+                    "state; it computes the program's operator rather than evolving "
+                    "a shot"
+                )
+            if stochastic and shots != 1:
+                raise BackendValidationError(
+                    f"final_classical_state with {stochastic_sources} is only "
+                    "supported for shots == 1"
+                )
         return request
 
     def _validate_engine_support(self, execution: _PreparedExecution) -> None:
@@ -1334,7 +1355,7 @@ class Simulator:
         self,
         *,
         raw: RawResult[np.ndarray],
-        config: _ResultConfig,
+        config: _SimulatorResultConfig,
         simulation: _SimulationConfig,
         lowering: _LoweringContext,
         request: _ResultRequest,
@@ -1353,6 +1374,8 @@ class Simulator:
             available.add("counts")
         if state_requested:
             available.add(self._state_field)
+        if request.final_classical_state:
+            available.add("classical_state")
 
         extra_data = self._additional_result_data(
             config=config,
@@ -1383,13 +1406,14 @@ class Simulator:
             classical_dims=classical_dims,
             data=extra_data,
             metadata=metadata,
+            classical_state=raw.classical_state,
             **{self._state_field: state},
         )
 
     def _additional_result_data(
         self,
         *,
-        config: _ResultConfig,
+        config: _SimulatorResultConfig,
         simulation: _SimulationConfig,
         raw: RawResult[np.ndarray],
     ) -> Mapping[str, Any]:

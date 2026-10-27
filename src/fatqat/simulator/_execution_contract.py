@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import numpy as np
 
 from ..errors import BackendValidationError
+from ..result import _ResultConfig
+
+if TYPE_CHECKING:
+    from ._engine.state import ClassicalState
 
 StateDataT = TypeVar("StateDataT")
 
@@ -79,11 +83,27 @@ class _SimulationConfig:
 
 
 @dataclass(frozen=True)
+class _SimulatorResultConfig(_ResultConfig):
+    """Result requests accepted by gate-level simulators."""
+
+    final_classical_state: bool = False
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if type(self.final_classical_state) is not bool:
+            raise BackendValidationError(
+                "final_classical_state must be a bool, got "
+                f"{self.final_classical_state!r}"
+            )
+
+
+@dataclass(frozen=True)
 class _ResultRequest:
     """Resolved outputs requested from an engine in its own representation."""
 
     counts: bool
     final_state: bool
+    final_classical_state: bool = False
 
 
 @dataclass(frozen=True)
@@ -97,6 +117,8 @@ class RawResult(Generic[StateDataT]):
     outcome_keys: np.ndarray | None = None
     outcome_counts: np.ndarray | None = None
     state: StateDataT | None = None
+    # An independent copy with allocated register digits.
+    classical_state: ClassicalState | None = None
 
 
 @dataclass(frozen=True, slots=True)

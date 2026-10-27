@@ -209,12 +209,15 @@ class NumbaSVEngine(_NdarrayEngine):
             plan,
             quantum_capabilities=self.capabilities.quantum,
             initial_state=initial_state,
+            classical_requested=context.request.final_classical_state,
         )
         _validate_shot_parallelism(
             simulation_config,
             execution_path=execution_path,
             counts_requested=context.request.counts,
-            state_requested=context.request.final_state,
+            state_requested=(
+                context.request.final_state or context.request.final_classical_state
+            ),
             shots=context.shots,
         )
         shot_request = simulation_config.shot_parallelism
@@ -230,6 +233,7 @@ class NumbaSVEngine(_NdarrayEngine):
             != "per_shot"  # Plan not supported by compiled trajectories.
             or not context.request.counts
             or context.request.final_state
+            or context.request.final_classical_state
             or initial_state.classical.occupied is not None
             or not _plan_compilable(plan)
         )
@@ -238,7 +242,9 @@ class NumbaSVEngine(_NdarrayEngine):
                 simulation_config,
                 execution_path=execution_path,
                 counts_requested=context.request.counts,
-                state_requested=context.request.final_state,
+                state_requested=(
+                    context.request.final_state or context.request.final_classical_state
+                ),
                 capabilities=self.capabilities.kernels,
                 supports_process_shots=self.capabilities.supports_process_shots,
                 shots=context.shots,

@@ -27,7 +27,7 @@ class ClassicalState:
             run's initial state, None requests the backend default: full for
             Simulator, empty for AtomArraySimulator. Changing this field alone
             does not reset quantum correlations.
-        extra: Dictionary for user data; not included in simulation results.
+        extra: Dictionary for user data; not included in counts.
     """
 
     # Unallocated register storage leaves unwritten report digits at zero.

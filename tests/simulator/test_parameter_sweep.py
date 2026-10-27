@@ -71,6 +71,27 @@ def test_scalar_parameter_sweep_returns_ordered_results():
     assert np.allclose(np.abs(results[2].get_statevector()), [0, 1])
 
 
+def test_sweep_returns_each_rows_final_classical_state():
+    theta = fq.Parameter("theta")
+    program = fq.Program(1, 1)
+    program.add(ops.RX(theta), 0)
+    program.measure(0, 0)
+    results = (
+        Simulator("SV")
+        .run_sweep(
+            program,
+            {theta: [0.0, np.pi]},
+            shots=1,
+            result_config={"final_classical_state": True},
+        )
+        .result()
+    )
+    assert [result.get_classical_state().clbits for result in results] == [
+        [0],
+        [1],
+    ]
+
+
 def test_vector_and_multiple_parameter_batches_match_explicit_loop():
     program, angles, bias = _rotation_template()
     bindings = {

@@ -136,7 +136,7 @@ def test_numba_trajectory_execution_handles_supported_and_fallback_plans(with_lo
         shots=4,
         request=_ResultRequest(counts=True, final_state=False),
     )
-    result = engine._execute_single(
+    (result,) = engine.execute(
         plan,
         context=context,
         simulation_config=_SimulationConfig(
@@ -264,7 +264,7 @@ def test_initial_register_drives_feedback_and_is_fresh_per_shot(mode):
         shots=8,
         request=_ResultRequest(counts=True, final_state=False),
     )
-    result = engine._execute_single(
+    (result,) = engine.execute(
         tuple(plan),
         context=context,
         simulation_config=_SimulationConfig(
@@ -342,7 +342,7 @@ def test_numba_initial_occupancy_preserves_erased_measurement():
         shots=4,
         request=_ResultRequest(counts=True, final_state=False),
     )
-    result = engine._execute_single(
+    (result,) = engine.execute(
         plan,
         context=context,
         simulation_config=_SimulationConfig(

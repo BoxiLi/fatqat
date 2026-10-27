@@ -102,13 +102,19 @@ def test_qnn_shaped_vector_sweep_preserves_multi_observable_shape():
     )
 
 
-def test_sampled_sweep_matches_same_seed_repeated_runs():
+@pytest.mark.parametrize("noisy", [False, True], ids=["deterministic", "stochastic"])
+def test_sampled_sweep_matches_same_seed_repeated_runs(noisy):
+    # Noise makes a statevector run stochastic, so every term reruns the plan.
     angle = fq.Parameter("angle")
     program = fq.Program(1)
     program.add(ops.RY(angle), 0)
     observable = Observable([("X", 1.0)])
     values = np.array([0.2, 0.9])
-    estimator = _estimator()
+    noise = None
+    if noisy:
+        noise = fq.NoiseModel()
+        noise.add(fq.noise.Depolarizing(p=0.1), operation=ops.RY)
+    estimator = _estimator(noise=noise)
     config = {"seed": 23}
     swept = estimator.run_sweep(
         program,

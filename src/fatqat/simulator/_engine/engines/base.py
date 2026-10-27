@@ -230,22 +230,46 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
             )
         return results
 
-    def _execute_single(
+    def continue_from_states(
         self,
-        plan: tuple[ResolvedStep, ...],
+        tail: tuple[ResolvedStep, ...],
+        states: Sequence[EvolutionState[QuantumDataT]],
         *,
         context: _RunContext,
         simulation_config: SimulationConfig,
-        initial_state: EvolutionState[QuantumDataT],
-    ) -> RawResult[QuantumDataT]:
-        """Select the policy for one concrete plan and dispatch it."""
+    ) -> list[RawResult[QuantumDataT]]:
+        """Continue already-evolved states with one shared concrete tail.
+
+        Sampled expectations evolve each batch entry once, then run every
+        term's measurement tail from those states. The tail is the same for
+        all states, so its policy is selected once from the first state and
+        its payload prepared once. ``tail`` has no parametric steps, and
+        ``states`` come from one plan, so they share their classical layout.
+        The selected policy is followed as in any run: a tail that needs
+        per-shot evolution (from states with atom occupancy) may run its shots
+        in worker processes, which prepare their own payloads per state.
+        """
         policy = self._select_policy(
-            plan,
+            tail,
             context=context,
             simulation_config=simulation_config,
-            initial_state=initial_state,
+            initial_state=states[0],
         )
-        return self._dispatch_by_shot_strategy(plan, context, policy, initial_state)
+        if policy.shot_strategy == "processes":
+            return [
+                self._dispatch_by_shot_strategy(tail, context, policy, state)
+                for state in states
+            ]
+        payload = self.prepare_payload(
+            tail,
+            system_dims=context.system_dims,
+            n_clbits=context.n_clbits,
+            policy=policy,
+        )
+        return [
+            self.execute_payload(context, payload, policy, initial_state=state)
+            for state in states
+        ]
 
     def expectation_values(
         self,

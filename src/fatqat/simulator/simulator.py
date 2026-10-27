@@ -61,7 +61,6 @@ from .._backends.backend_utils import (
     _validate_result_shots,
 )
 from . import planning
-from ._engine.binding import _bind_parameter_batch
 from ._engine.state import EvolutionState
 from ._execution_contract import (
     _RunContext,
@@ -828,9 +827,9 @@ class Simulator:
         """Execute a private exact or sampled expectation request per entry.
 
         ``parameter_values`` are a sweep's validated columns; without them the
-        program is one fully bound entry. The program is prepared once. Exact
-        values evolve every entry in one engine call; sampled values run the
-        single-entry sampling for each bound entry.
+        program is one fully bound entry. The program is prepared once and
+        every entry evolves in one engine call; sampled values then run each
+        term's measurement tail from every entry's state.
         """
         execution = self._prepare_execution(
             program,
@@ -865,15 +864,9 @@ class Simulator:
                     )
                 ]
             else:
-                entries = [
-                    self._execute_sampled_expectation(
-                        execution, plan, constants, bound_occurrences, shots=shots
-                    )
-                    for plan in _bind_parameter_batch(
-                        execution.plan,
-                        execution.lowering.engine_allocation.system_dims,
-                    )
-                ]
+                entries = self._execute_sampled_expectation(
+                    execution, constants, bound_occurrences, shots=shots
+                )
             return Job(
                 status="DONE",
                 result=[
@@ -991,9 +984,8 @@ class Simulator:
     def _execute_expectation_base(
         self,
         execution: _PreparedExecution,
-        plan: tuple[ResolvedStep, ...],
-    ) -> EvolutionState:
-        """Execute one bound entry and retain its quantum and classical state."""
+    ) -> list[EvolutionState]:
+        """Evolve every entry once and keep its quantum and classical state."""
         context = _RunContext(
             request=_ResultRequest(
                 counts=False, final_state=True, final_classical_state=True
@@ -1003,15 +995,19 @@ class Simulator:
             shots=1,
             seed=execution.simulation.seed,
         )
-        raw = self._engine._execute_single(
-            plan=plan,
+        states = []
+        for raw in self._engine.execute(
+            execution.plan,
             context=context,
             simulation_config=execution.simulation,
             initial_state=execution.initial_state,
-        )
-        if raw.state is None or raw.classical_state is None:
-            raise RuntimeError("expectation base execution returned no state")
-        return EvolutionState(quantum=raw.state, classical=raw.classical_state)
+        ):
+            if raw.state is None or raw.classical_state is None:
+                raise RuntimeError("expectation base execution returned no state")
+            states.append(
+                EvolutionState(quantum=raw.state, classical=raw.classical_state)
+            )
+        return states
 
     def _execute_exact_expectation(
         self,
@@ -1057,36 +1053,45 @@ class Simulator:
     def _execute_sampled_expectation(
         self,
         execution: _PreparedExecution,
-        plan: tuple[ResolvedStep, ...],
         constants: tuple[float, ...],
         bound_occurrences: tuple[_BoundExpectationOccurrence, ...],
         *,
         shots: int,
-    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
-        """Execute native outcomes for each term occurrence of one bound entry."""
-        base_state = (
-            self._execute_expectation_base(execution, plan)
+    ) -> list[tuple[tuple[float, ...], tuple[float, ...]]]:
+        """Sample each term occurrence for every entry; one result per entry.
+
+        A deterministic plan evolves every entry once and runs each term's
+        measurement tail from those states. A stochastic plan reruns the
+        whole plan with each tail. Each term has one seed, shared by entries.
+        """
+        base_states = (
+            self._execute_expectation_base(execution)
             if not execution.facts.stochastic_final_state
             else None
         )
-        request = _ResultRequest(counts=True, final_state=False)
-        statistics = []
+
+        def with_scratch(
+            initial: EvolutionState, bound: _BoundExpectationOccurrence
+        ) -> EvolutionState:
+            # The tail measures into scratch clbits after the program's own.
+            clbits = initial.classical.clbits
+            if clbits is None:
+                return initial
+            return replace(
+                initial,
+                classical=replace(
+                    initial.classical,
+                    clbits=clbits + [0] * len(bound.engine_factors),
+                ),
+            )
+
+        statistics: list[list] = []
         child_seeds = np.random.SeedSequence(execution.simulation.seed).spawn(
             len(bound_occurrences)
         )
         for child_seed, bound in zip(child_seeds, bound_occurrences, strict=True):
-            initial = base_state if base_state is not None else execution.initial_state
-            clbits = initial.classical.clbits
-            if clbits is not None:
-                initial = replace(
-                    initial,
-                    classical=replace(
-                        initial.classical,
-                        clbits=clbits + [0] * len(bound.engine_factors),
-                    ),
-                )
             context = _RunContext(
-                request=request,
+                request=_ResultRequest(counts=True, final_state=False),
                 system_dims=tuple(execution.lowering.engine_allocation.system_dims),
                 n_clbits=(
                     execution.lowering.classical_allocation.n_clbits
@@ -1095,28 +1100,39 @@ class Simulator:
                 shots=shots,
                 seed=int(child_seed.generate_state(1, dtype=np.uint64)[0]),
             )
-            sample_plan = bound.tail if base_state is not None else plan + bound.tail
-            raw = self._engine._execute_single(
-                plan=sample_plan,
-                context=context,
-                simulation_config=execution.simulation,
-                initial_state=initial,
-            )
-            if raw.outcome_keys is None or raw.outcome_counts is None:
-                raise RuntimeError("sampled expectation execution returned no outcomes")
-            measured_rows = raw.outcome_keys[:, bound.scratch_indices]
-            statistics.append(
-                _reduce_outcome_counts(
-                    bound.engine_factors,
-                    zip(measured_rows, raw.outcome_counts, strict=True),
+            if base_states is not None:
+                raws = self._engine.continue_from_states(
+                    bound.tail,
+                    [with_scratch(state, bound) for state in base_states],
+                    context=context,
+                    simulation_config=execution.simulation,
                 )
-            )
-        return _combine_term_statistics(
-            constants,
-            tuple(bound.occurrence for bound in bound_occurrences),
-            statistics,
-            shots=shots,
-        )
+            else:
+                raws = self._engine.execute(
+                    execution.plan + bound.tail,
+                    context=context,
+                    simulation_config=execution.simulation,
+                    initial_state=with_scratch(execution.initial_state, bound),
+                )
+            if not statistics:
+                statistics = [[] for _raw in raws]
+            for entry, raw in zip(statistics, raws, strict=True):
+                if raw.outcome_keys is None or raw.outcome_counts is None:
+                    raise RuntimeError(
+                        "sampled expectation execution returned no outcomes"
+                    )
+                measured_rows = raw.outcome_keys[:, bound.scratch_indices]
+                entry.append(
+                    _reduce_outcome_counts(
+                        bound.engine_factors,
+                        zip(measured_rows, raw.outcome_counts, strict=True),
+                    )
+                )
+        occurrences = tuple(bound.occurrence for bound in bound_occurrences)
+        return [
+            _combine_term_statistics(constants, occurrences, entry, shots=shots)
+            for entry in statistics
+        ]
 
     def _execute_plan(
         self,

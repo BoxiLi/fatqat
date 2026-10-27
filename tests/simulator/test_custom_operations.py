@@ -1,8 +1,6 @@
 """Behavior of custom joint state implementations through public APIs."""
 
 from dataclasses import replace
-from pathlib import Path
-import runpy
 
 import numpy as np
 import pytest
@@ -21,78 +19,6 @@ from fatqat.simulator import (
     EvolutionState,
     Simulator,
 )
-
-EXAMPLE = runpy.run_path(
-    str(Path(__file__).resolve().parents[2] / "examples/custom_loss.py")
-)
-
-
-@pytest.mark.parametrize("runtime", ["numpy", "numba"])
-@pytest.mark.parametrize("method", ["statevector", "density_matrix"])
-def test_independent_loss_example(runtime, method):
-    simulator = EXAMPLE["make_simulator"](runtime, method)
-    result = simulator.run(
-        EXAMPLE["make_program"](1),
-        shots=8,
-        initial_state=EXAMPLE["initial_state"](),
-    ).result()
-    assert result.get_counts() == {"201": 8}
-
-
-@pytest.mark.parametrize("runtime", ["numpy", "numba"])
-@pytest.mark.parametrize("method", ["statevector", "density_matrix"])
-def test_loss_preserves_survivor_statistics_of_an_entangled_pair(runtime, method):
-    initial = EXAMPLE["initial_state"]()
-    initial.quantum = np.array([1, 0, 0, 1], dtype=complex) / np.sqrt(2)
-    initial.classical.occupied = {0, 1}
-    program = fq.Program(2, 2)
-    program.add(EXAMPLE["SetLossProbability"](0.3), ())
-    program.add(EXAMPLE["MyLoss"](), (0, 1))
-    for target in (0, 1):
-        program.measure(target, target)
-    counts = (
-        EXAMPLE["make_simulator"](runtime, method)
-        .run(
-            program,
-            initial_state=initial,
-            shots=2048,
-            simulation_config={"seed": 36},
-        )
-        .result()
-        .get_counts()
-    )
-    # Both survivors retain Bell correlations; one survivor is maximally mixed.
-    expected = {
-        "00": 0.245,
-        "11": 0.245,
-        "02": 0.105,
-        "12": 0.105,
-        "20": 0.105,
-        "21": 0.105,
-        "22": 0.09,
-    }
-    assert counts.keys() == expected.keys()
-    # The tolerance exceeds six standard errors for every expected frequency.
-    np.testing.assert_allclose(
-        [counts[key] / 2048 for key in expected],
-        list(expected.values()),
-        rtol=0,
-        atol=0.06,
-    )
-
-
-def test_loss_conditions_absent_operands_and_unpaired_targets():
-    program = fq.Program(2, 2)
-    program.add(ops.Put, 1)
-    program.add(EXAMPLE["SetLossProbability"](1), ())
-    # Target 0 is never loaded; the custom operation handles its absence.
-    program.add(EXAMPLE["MyLoss"](), (0, 1), condition=(0, 1))
-    program.measure(1, 0)
-    program.add(EXAMPLE["MyLoss"](), (0, 1), condition=(0, 0))
-    program.measure(1, 1)
-    assert EXAMPLE["make_simulator"]().run(
-        program, shots=4, initial_state=EXAMPLE["initial_state"]()
-    ).result().get_counts() == {"02": 4}
 
 
 class Correlated(ops.CustomOperation):

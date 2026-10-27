@@ -256,7 +256,7 @@ def test_result_metadata_records_backend_shots_and_config():
     p = Program(1, 1)
     p.add(ops.X, 0)
     p.measure(0, 0)
-    config = {"counts": True, "final_state": False}
+    config = {"counts": True, "final_state": False, "final_classical_state": False}
     result = (
         Simulator("DM")
         .run(p, shots=7, simulation_config={"seed": 0}, result_config=config)

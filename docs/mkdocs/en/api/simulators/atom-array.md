@@ -69,7 +69,8 @@ declared site, whether or
 not an atom is present. With the default initial state, a never-loaded site is
 represented by `|0>`, but measuring it returns `2`.
 These quantum-state exports cannot reveal whether a site is occupied;
-use measurements and counts for that distinction.
+use measurements and counts, or request `final_classical_state`, for that
+distinction.
 
 [`Estimator`][fatqat.Estimator] supports loss-free programs only. It preserves
 both quantum state and occupancy when reusing a base execution. An observable

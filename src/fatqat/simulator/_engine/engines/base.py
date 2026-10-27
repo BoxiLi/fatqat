@@ -352,7 +352,10 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                     payload,
                     context,
                     initial_state,
-                    state_requested=state_requested,
+                    state_requested=(
+                        context.request.final_state
+                        or context.request.final_classical_state
+                    ),
                 )
                 outcomes = reduce_to_counts(rows) if rows is not None else None
             else:
@@ -383,8 +386,18 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
                     )
             outcome_keys, outcome_counts = outcomes or (None, None)
             state = self.export_state() if state_requested else None
+            classical_state = None
+            if context.request.final_classical_state:
+                # Copy so later execution cannot change the returned digits.
+                assert self._evolution_state is not None
+                classical_state = deepcopy(self._evolution_state.classical)
+                if classical_state.clbits is None:
+                    classical_state.clbits = [0] * context.n_clbits
             return RawResult(
-                outcome_keys=outcome_keys, outcome_counts=outcome_counts, state=state
+                outcome_keys=outcome_keys,
+                outcome_counts=outcome_counts,
+                state=state,
+                classical_state=classical_state,
             )
 
     def execute_worker_shots(
@@ -489,17 +502,3 @@ class MatrixEngine(ABC, Generic[QuantumDataT]):
         transfer the result when they need independent storage or host data.
         """
         return self.state
-
-    def _export_evolution_state(self) -> EvolutionState[QuantumDataT]:
-        """Export completed local evolution as reusable initialization.
-
-        Quantum data is borrowed in runtime-native storage. Classical values
-        are copied so later execution cannot change the saved initialization.
-        Each consumer initializes its own mutable state before evolving it.
-        """
-        if self._evolution_state is None:
-            raise RuntimeError("MatrixEngine state has not been initialized.")
-        return EvolutionState(
-            quantum=self.export_state(),
-            classical=deepcopy(self._evolution_state.classical),
-        )

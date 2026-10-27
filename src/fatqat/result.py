@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 import numpy as np
 
 from .errors import BackendValidationError, ResultFieldUnavailableError
+
+if TYPE_CHECKING:
+    from .simulator import ClassicalState
 
 
 @dataclass(frozen=True)
@@ -164,6 +167,7 @@ class Result:
         unitary: np.ndarray | None = None,
         superop: np.ndarray | None = None,
         data: Mapping[str, Any] | None = None,
+        classical_state: ClassicalState | None = None,
     ) -> None:
         """Create a result from produced fields.
 
@@ -185,17 +189,19 @@ class Result:
             data: Additional named fields. These names are added to
                 ``available_data`` automatically and are read with
                 ``get_data`` or a dedicated accessor.
+            classical_state: Final classical state of one shot, if produced.
 
         Raises:
             BackendValidationError: If ``data`` uses ``"counts"``,
-                ``"final_state"``, ``"statevector"``, ``"density_matrix"``,
-                ``"unitary"``, or ``"superop"``, which are reserved for core
-                fields.
+                ``"final_state"``, ``"classical_state"``, ``"statevector"``,
+                ``"density_matrix"``, ``"unitary"``, or ``"superop"``, which
+                are reserved for core fields.
         """
         self._data = dict(data) if data is not None else {}
         reserved = {
             "counts",
             "final_state",
+            "classical_state",
             "statevector",
             "density_matrix",
             "unitary",
@@ -212,6 +218,7 @@ class Result:
         self._density_matrix = density_matrix
         self._unitary = unitary
         self._superop = superop
+        self._classical_state = classical_state
         self.available_data = frozenset(available) | frozenset(self._data)
         self.metadata = dict(metadata) if metadata is not None else {}
         self._classical_dims = tuple(classical_dims)
@@ -446,3 +453,38 @@ class Result:
         if "superop" not in self.available_data:
             raise ResultFieldUnavailableError("superop not available in this result")
         return self._superop
+
+    def get_classical_state(self) -> ClassicalState:
+        """Return the classical state at the end of the run.
+
+        Simulators produce it when ``result_config`` requests
+        ``"final_classical_state"``. It holds one shot's register digits in
+        ``clbits`` and its site occupancy in ``occupied``, where ``None``
+        means every site is occupied.
+
+        Returns:
+            A ``fatqat.simulator.ClassicalState``.
+
+        Raises:
+            ResultFieldUnavailableError: If a final classical state was not
+                produced.
+
+        Examples:
+            >>> import fatqat as fq
+            >>> import fatqat.operations as ops
+            >>> program = fq.Program(1, 1)
+            >>> program.add(ops.X, 0)
+            >>> program.measure(0, 0)
+            >>> result = fq.simulator.Simulator("SV").run(
+            ...     program,
+            ...     shots=1,
+            ...     result_config={"final_classical_state": True},
+            ... ).result()
+            >>> result.get_classical_state().clbits
+            [1]
+        """
+        if "classical_state" not in self.available_data:
+            raise ResultFieldUnavailableError(
+                "classical_state not available in this result"
+            )
+        return self._classical_state

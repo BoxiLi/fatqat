@@ -145,8 +145,9 @@ shape `(D,)`; `density_matrix` accepts `(D,)` or `(D, D)`. Only the quantum shap
 checked; you are responsible for normalization and, for density matrices,
 Hermiticity and positivity.
 
-`result_config` has two keys. Each accepts `True`, `False`, or `None`;
-an omitted or `None` value uses the default shown below.
+`result_config` accepts the keys below. `counts` and `final_state` accept
+`True`, `False`, or `None`; an omitted or `None` value uses the default shown.
+`final_classical_state` accepts only `True` or `False`.
 
 **Result fields**
 
@@ -154,6 +155,10 @@ an omitted or `None` value uses the default shown below.
 | --- | --- | --- |
 | `counts` | Enabled when the program measures | Requires an integer `shots > 0` |
 | `final_state` | Enabled when the method-native state or map is deterministic | A requested stochastic final state requires `shots == 1` |
+| `final_classical_state` | Disabled | Requires `shots == 1` when the final state is stochastic; rejected by `unitary` and `superop` |
+
+`final_classical_state=True` returns one shot's final [`ClassicalState`][fatqat.simulator.ClassicalState]
+(register digits and site occupancy) through [`Result.get_classical_state`][fatqat.Result.get_classical_state].
 
 The concrete final-state field is named `statevector`, `density_matrix`,
 `unitary`, or `superop`. Check `fatqat.Result.available_data` before

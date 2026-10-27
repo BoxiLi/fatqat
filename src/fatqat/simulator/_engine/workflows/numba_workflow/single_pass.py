@@ -61,13 +61,10 @@ class _NumbaSinglePassExecution(NamedTuple):
 def _placeholder_plan(
     plan: Sequence[ResolvedStep], dims: tuple[int, ...]
 ) -> tuple[ResolvedStep, ...]:
-    """Stand in for each parametric gate that has a compiled formula.
+    """Stand in for each parametric gate with an identity matrix step.
 
-    The placeholder is an identity matrix step with the gate's targets,
-    condition, and kernel key, so planning and packing read it as the bound
-    gate. Only exactly-registered built-in gates have formulas, matching the
-    batched host rules; any other parametric step stays as it is, which keeps
-    the plan off compiled workflows.
+    The placeholder keeps the gate's targets, condition, and kernel key, so
+    planning and packing read it as the bound gate.
     """
     return tuple(
         (
@@ -82,7 +79,6 @@ def _placeholder_plan(
                 ),
             )
             if isinstance(step, ApplyParametricMatrixStep)
-            and step.implementation._batch_builder(step.operation) is not None
             else step
         )
         for step in plan

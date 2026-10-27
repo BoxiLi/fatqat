@@ -565,10 +565,16 @@ def test_engines_reject_unbound_parametric_steps():
         backend._engine._dispatch_by_shot_strategy(template, None, None, None)
 
 
-def test_noisy_counts_sweep_matches_explicit_runs():
+@pytest.mark.parametrize(
+    "parallelism",
+    [{}, {"shot_parallelism": "threads", "max_workers": 2}],
+    ids=["auto", "threads"],
+)
+def test_noisy_counts_sweep_matches_explicit_runs(parallelism):
     # Noise, counts, and repeated shots select per-shot trajectories. Tilt has
     # a custom rule whose matrix structure changes with its angle: diagonal at
-    # 0, a permutation at pi, dense otherwise. Every row must match its own run.
+    # 0, a permutation at pi, dense otherwise. Every row must match its own run,
+    # also when shots run in threads.
     @dataclass(frozen=True)
     class Tilt(Operation):
         theta: float | fq.Parameter
@@ -592,7 +598,7 @@ def test_noisy_counts_sweep_matches_explicit_runs():
     noise.add(fq.noise.Depolarizing(p=0.05), operation=ops.CX)
     backend = Simulator("SV", implementation_map=impl_map, noise=noise)
     values = {theta: [0.1, 1.0, 2.0], phi: [0.0, 0.5, 3.0], tau: [0.0, np.pi, 1.2]}
-    options = {"shots": 64, "simulation_config": {"seed": 11}}
+    options = {"shots": 64, "simulation_config": {"seed": 11, **parallelism}}
 
     swept = backend.run_sweep(program, values, **options).result()
 

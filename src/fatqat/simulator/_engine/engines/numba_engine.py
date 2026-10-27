@@ -218,13 +218,21 @@ class NumbaSVEngine(_NdarrayEngine):
 
         Eligible repeated trajectories use the compiled loop with serial inner
         kernels and serial or threaded shots. A parameter batch on the
-        single-pass path, too small for threaded kernels, evolves its entries
-        in a compiled call and is sampled by the Python workflow; packing costs
-        more than it saves for a single plan. Other requests use shared Python
+        single-pass path, too small for threaded kernels, whose parametric
+        gates all have compiled formulas, evolves its entries in a compiled
+        call and is sampled by the Python workflow; packing costs more than it
+        saves for a single plan. Other requests use shared Python
         scheduling, including process replay and threading within kernels.
         ``plan`` may hold parametric steps; it is judged as its placeholder plan.
         """
-        batch = any(isinstance(step, ApplyParametricMatrixStep) for step in plan)
+        # Only exactly-registered built-in gates have compiled formulas.
+        parametric = [
+            step for step in plan if isinstance(step, ApplyParametricMatrixStep)
+        ]
+        compiled_batch = bool(parametric) and all(
+            step.implementation._batch_builder(step.operation) is not None
+            for step in parametric
+        )
         plan = _placeholder_plan(plan, context.system_dims)
         execution_path = _select_execution_path(
             plan,
@@ -271,7 +279,7 @@ class NumbaSVEngine(_NdarrayEngine):
                 shots=context.shots,
             )
             if (
-                batch
+                compiled_batch
                 and execution_path == "single_pass"
                 and policy.shot_strategy != "processes"
                 and policy.kernel_strategy != "threads"

@@ -717,6 +717,18 @@ def test_put_only_final_state_remains_deterministic_for_any_shots():
     assert np.allclose(np.abs(state), [0, 1])
 
 
+def test_final_classical_state_reports_occupancy_after_put():
+    program = Program(2)
+    program.add(ops.Put, (0, 1))
+    classical = (
+        AtomArraySimulator()
+        .run(program, shots=10, result_config={"final_classical_state": True})
+        .result()
+        .get_classical_state()
+    )
+    assert classical.occupied == {0, 1}
+
+
 @pytest.mark.parametrize("method", ["unitary", "superop"])
 def test_operator_methods_are_rejected_at_construction(method):
     with pytest.raises(BackendValidationError, match="supports only"):

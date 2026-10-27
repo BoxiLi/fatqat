@@ -53,8 +53,7 @@ To extend the atom-array profile, start with `AtomArraySimulator().implementatio
 `execute(operation, state, context)` must return the updated state or a replacement
 `EvolutionState`. Keep shot-specific data in `state.classical`, rather than on the
 operation or implementation object, which may be reused across shots. User data
-is not automatically included in results; write reported values to `clbits` as
-in the example.
+is not included in counts; write reported values to `clbits` as in the example.
 
 Use `context.targets` to locate quantum operands and `context.rng` for random
 draws that respect the simulation seed. Field meanings, target ordering, and

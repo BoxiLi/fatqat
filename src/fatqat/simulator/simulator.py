@@ -10,6 +10,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from itertools import batched, chain
+from math import prod
 from typing import Any
 
 import numpy as np
@@ -62,7 +63,7 @@ from .._backends.backend_utils import (
     _validate_result_shots,
 )
 from . import planning
-from ._engine.state import EvolutionState
+from ._engine.state import BasisState, EvolutionState
 from ._execution_contract import (
     _RunContext,
     _PlanFacts,
@@ -484,14 +485,16 @@ class Simulator:
                 to a device label. It must be complete, one-to-one, and
                 compatible with the backend. The documented backend default
                 is used when omitted.
-            initial_state: Quantum array or ``EvolutionState`` supplying quantum
-                and classical data for every shot. None selects the ground state;
-                see ``EvolutionState`` for classical defaults and shot independence.
-                Statevector execution accepts shape ``(D,)``; density-matrix
-                execution accepts ``(D, D)`` or a ``(D,)`` ket. Arrays use public
-                most-significant-first basis order. Only the quantum shape is
-                validated, not normalization or physical validity. Operator
-                methods reject an initial state.
+            initial_state: Quantum array, ``BasisState``, or ``EvolutionState``
+                supplying quantum and classical data for every shot. None selects
+                the ground state; see ``EvolutionState`` for classical defaults
+                and shot independence. Statevector execution accepts shape
+                ``(D,)``; density-matrix execution accepts ``(D, D)`` or a
+                ``(D,)`` ket. Arrays use public most-significant-first basis
+                order. Only the quantum shape is validated, not normalization or
+                physical validity. A ``BasisState`` names one level per
+                subsystem instead, and density-matrix execution starts from its
+                pure state. Operator methods reject an initial state.
                 Shape errors raise directly. Runtime array-conversion failures
                 follow ``error_handling``.
             simulation_config: Optional per-run execution controls. String
@@ -619,8 +622,9 @@ class Simulator:
             resource_layout: Complete, one-to-one assignment of program
                 quantum references to compatible device labels, reused for
                 every row. The backend default is used when omitted.
-            initial_state: Quantum array or ``EvolutionState`` used to initialize
-                every shot in every row, following the same rules as ``run()``.
+            initial_state: Quantum array, ``BasisState``, or ``EvolutionState``
+                used to initialize every shot in every row, following the same
+                rules as ``run()``.
             simulation_config: Controls reused for every row. Accepted keys:
 
                 - ``"seed"`` (``int | None``, default ``None``): Use a
@@ -778,6 +782,11 @@ class Simulator:
         engine_allocation = self._allocate_engine_indices(program, resource_layout)
         classical_allocation = _ClassicalAllocation.from_program(program)
         initial_state = self._prepare_initial_state(initial_state)
+        if isinstance(initial_state.quantum, BasisState):
+            # pylint: disable-next=fixme
+            # TODO: let the engine build the ket in its own array type (NumPy,
+            # JAX, CuPy); a NumPy array works for every engine for now.
+            initial_state.quantum = _basis_state_ket(initial_state.quantum, program)
         self._validate_initial_state(
             initial_state,
             tuple(reversed(engine_allocation.system_dims)),
@@ -1691,3 +1700,28 @@ class Simulator:
                     "Kraus implementation on this backend",
                 )
         return tuple(dict.fromkeys(rejection_reasons))
+
+
+def _basis_state_ket(basis: BasisState, program: Program) -> np.ndarray:
+    """Build the dense ket for a basis state in public basis order."""
+    refs = [
+        register[index]
+        for register in program.quantum_registers
+        for index in range(register.size)
+    ]
+    unknown = set(basis.levels) - set(refs)
+    if unknown:
+        raise BackendValidationError(
+            f"BasisState names {sorted(map(str, unknown))}, which are not "
+            "quantum references of this program"
+        )
+    dims = tuple(ref.register.dim for ref in refs)
+    levels = tuple(basis.levels.get(ref, 0) for ref in refs)
+    for ref, level, dim in zip(refs, levels, dims, strict=True):
+        if level >= dim:
+            raise BackendValidationError(
+                f"BasisState level {level} on {ref} is outside its dimension {dim}"
+            )
+    ket = np.zeros(prod(dims), dtype=complex)
+    ket[np.ravel_multi_index(levels, dims)] = 1.0
+    return ket

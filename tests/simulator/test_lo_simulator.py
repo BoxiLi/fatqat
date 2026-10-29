@@ -9,7 +9,7 @@ import fatqat as fq
 import fatqat.operations as ops
 from fatqat.errors import BackendValidationError
 from fatqat.noise import Depolarizing
-from fatqat.simulator import LOSimulator, Simulator
+from fatqat.simulator import BasisState, EvolutionState, LOSimulator, Simulator
 
 _STATE_ONLY = {"shots": 0, "result_config": {"counts": False, "final_state": True}}
 
@@ -90,13 +90,13 @@ def test_hong_ou_mandel_photons_leave_together(method):
     program.add(ops.BeamSplitter(math.pi / 4), (modes[0], modes[1]))
     program.measure((modes[0], modes[1]), (counts[0], counts[1]))
 
-    # A length-9 state infers cutoff 2, enough for both photons in one mode.
+    # Two photons infer cutoff 2, enough for both photons in one mode.
     result = (
         LOSimulator(method)
         .run(
             program,
             shots=2000,
-            initial_state=_fock(2, 1, 1),
+            initial_state=BasisState({modes[0]: 1, modes[1]: 1}),
             simulation_config={"seed": 7},
         )
         .result()
@@ -120,6 +120,43 @@ def test_cutoff_inference_accounts_for_fixed_dimension_registers():
     np.testing.assert_allclose(
         state.result().get_statevector(), expected, rtol=0, atol=1e-12
     )
+
+
+def test_basis_state_cutoff_counts_only_mode_photons():
+    qubit = fq.QuantumRegister(1)
+    modes = fq.ModeRegister(2)
+    program = fq.Program([qubit, modes])
+    program.add(ops.BeamSplitter(math.pi / 2), (modes[0], modes[1]))
+    # The qubit's level is not a photon, so the inferred cutoff is 1.
+    initial = EvolutionState(quantum=BasisState({qubit[0]: 1, modes[0]: 1}))
+
+    state = LOSimulator().run(program, initial_state=initial, **_STATE_ONLY)
+
+    expected = np.kron([0.0, 1.0], _fock(1, 0, 1))
+    np.testing.assert_allclose(
+        state.result().get_statevector(), expected, rtol=0, atol=1e-12
+    )
+
+
+def test_explicit_cutoff_below_the_photon_total_warns():
+    program = _two_mode_program(ops.BeamSplitter(math.pi / 4))
+    modes = program.quantum_registers[0]
+    basis = BasisState({modes[0]: 1, modes[1]: 1})
+    options = {"initial_state": basis, **_STATE_ONLY}
+
+    with pytest.warns(UserWarning, match="below the 2 photons"):
+        LOSimulator().run(program, simulation_config={"cutoff": 1}, **options)
+    # A mode level above the cutoff cannot be represented at all.
+    with (
+        pytest.warns(UserWarning),
+        pytest.raises(BackendValidationError, match="outside its dimension 2"),
+    ):
+        LOSimulator().run(
+            program,
+            initial_state=BasisState({modes[0]: 2}),
+            simulation_config={"cutoff": 1},
+            **_STATE_ONLY,
+        )
 
 
 def test_cutoff_must_be_given_without_an_initial_state():
@@ -190,7 +227,8 @@ def test_run_sweep_matches_explicit_loop():
     )
     values = np.linspace(0.0, math.pi, 4)
     backend = LOSimulator()
-    options = {"initial_state": _fock(1, 1, 0), **_STATE_ONLY}
+    modes = program.quantum_registers[0]
+    options = {"initial_state": BasisState({modes[0]: 1}), **_STATE_ONLY}
 
     swept = backend.run_sweep(program, {phi: values}, **options).result()
 

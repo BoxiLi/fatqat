@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, replace
 from math import prod
 from typing import Any, Mapping
@@ -21,7 +22,7 @@ from ..registers import (
     RegisterView,
 )
 from ..resource_layout import ResourceLayout
-from ._engine.state import EvolutionState
+from ._engine.state import BasisState, EvolutionState
 from ._execution_contract import _SimulationConfig
 from .simulator import Simulator, _PreparedExecution
 
@@ -57,15 +58,19 @@ class LOSimulator(Simulator):
     ``simulation_config`` accepts every `Simulator` key plus:
 
     - ``"cutoff"`` (``int | None``, default ``None``): Maximum photon number
-      per mode, a positive integer. ``None`` infers it from a dense
-      ``initial_state``, whose length must then equal ``(cutoff + 1)`` to the
-      power of the number of modes, times the dimensions of any other quantum
-      registers. Without an ``initial_state`` the cutoff must be given.
+      per mode, a positive integer. ``None`` infers it from ``initial_state``.
+      For a `BasisState` it is the total photon number in the modes (at least
+      1), so passive gates are exact. For a dense array its length must equal
+      ``(cutoff + 1)`` to the power of the number of modes, times the
+      dimensions of any other quantum registers. Without an ``initial_state``
+      the cutoff must be given.
 
     Truncation is an approximation: `fatqat.operations.BeamSplitter` is exact
     only while the two modes it mixes hold at most ``cutoff`` photons in
-    total. The backend does not check this; choose a cutoff at least the
-    largest photon number the program can bring into one pair of modes.
+    total. Choose a cutoff at least the largest photon number the program can
+    bring into one pair of modes. The backend warns when an explicit cutoff is
+    below the photon total of a `BasisState`; it does not inspect dense
+    arrays. A mode level above the cutoff does not fit and raises.
 
     Noise selectors that name a `fatqat.ModeRegister` reference are not
     supported; select those modes by device label instead.
@@ -81,9 +86,8 @@ class LOSimulator(Simulator):
         >>> modes = fq.ModeRegister(2)
         >>> program = fq.Program([modes])
         >>> program.add(ops.BeamSplitter(math.pi / 4), (modes[0], modes[1]))
-        >>> one_one = np.zeros(9)
-        >>> one_one[1 * 3 + 1] = 1.0  # |1, 1> with cutoff 2
-        >>> state = (
+        >>> one_one = fq.simulator.BasisState({modes[0]: 1, modes[1]: 1})
+        >>> state = (  # the inferred cutoff is 2, one level per photon
         ...     fq.simulator.LOSimulator("SV")
         ...     .run(program, initial_state=one_one)
         ...     .result()
@@ -123,6 +127,16 @@ class LOSimulator(Simulator):
             cutoff = simulation.cutoff
             if cutoff is None:
                 cutoff = _infer_cutoff(program, quantum)
+            elif isinstance(quantum, BasisState):
+                # Only a basis state gives the photon number directly; dense
+                # arrays are not inspected (they may not be NumPy arrays).
+                photons = _mode_photons(quantum)
+                if photons > cutoff:
+                    warnings.warn(
+                        f"cutoff {cutoff} is below the {photons} photons in "
+                        "initial_state; BeamSplitter results may be truncated",
+                        stacklevel=3,
+                    )
             self._reject_mode_noise_selectors(program)
             # Matrix rules, classical allocation and count formatting all read
             # `register.dim`, so the run uses a copy with concrete registers.
@@ -136,6 +150,16 @@ class LOSimulator(Simulator):
                         refs.get(ref, ref): resource_layout.device_label(ref)
                         for ref in resource_layout.refs
                     }
+                )
+            # A basis state names refs too; translate it the same way.
+            if isinstance(quantum, BasisState):
+                quantum = BasisState(
+                    {refs.get(ref, ref): level for ref, level in quantum.levels.items()}
+                )
+                initial_state = (
+                    replace(initial_state, quantum=quantum)
+                    if isinstance(initial_state, EvolutionState)
+                    else quantum
                 )
         return super()._prepare_execution(
             program,
@@ -177,8 +201,16 @@ class LOSimulator(Simulator):
                 )
 
 
+def _mode_photons(basis: BasisState) -> int:
+    """Return the total photon number a basis state puts in the modes."""
+    return sum(level for ref, level in basis.levels.items() if ref.register.dim is None)
+
+
 def _infer_cutoff(program: Program, quantum: Any) -> int:
-    """Infer the cutoff from a dense initial state's length."""
+    """Infer the cutoff from a basis state or a dense initial state's length."""
+    if isinstance(quantum, BasisState):
+        # Passive gates never add photons, so no mode can exceed the total.
+        return max(1, _mode_photons(quantum))
     num_modes = sum(
         register.size for register in program.quantum_registers if register.dim is None
     )
@@ -198,7 +230,7 @@ def _infer_cutoff(program: Program, quantum: Any) -> int:
             f"for {num_modes} mode(s); pass simulation_config['cutoff']"
         )
     raise BackendValidationError(
-        "a ModeRegister program needs simulation_config['cutoff'] or a dense "
+        "a ModeRegister program needs simulation_config['cutoff'] or an "
         "initial_state to infer it from"
     )
 

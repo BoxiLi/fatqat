@@ -14,12 +14,13 @@ from .fake_superconducting import SCQubitSimulator
 from .linear_optics import LOSimulator
 from .simulator import Simulator
 from .custom_operations import ExecutionContext
-from ._engine.state import ClassicalState, EvolutionState
+from ._engine.state import BasisState, ClassicalState, EvolutionState
 
 __all__ = [
     "Simulator",
     "LOSimulator",
     "ExecutionContext",
+    "BasisState",
     "ClassicalState",
     "EvolutionState",
     "AtomArraySimulator",

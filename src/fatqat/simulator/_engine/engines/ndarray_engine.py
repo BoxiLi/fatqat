@@ -9,13 +9,11 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Sequence
 from copy import deepcopy
-from math import prod
 
 import numpy as np
 
 from ...._expectation import expectation_density_matrix, expectation_statevector
 from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
-from ..numerics.numpy_kernels._state import _basis_index
 from ..state import EvolutionState, _LoweredBasisState
 from .base import MatrixEngine
 
@@ -31,20 +29,17 @@ class _NdarrayEngine(MatrixEngine[np.ndarray]):
         initial_state: EvolutionState[np.ndarray] | None = None,
     ) -> None:
         self.configure_system(system_dims, n_clbits)
+        operator = self.capabilities.quantum.is_operator
         if initial_state is None:
-            # Direct callers get the same ground state Simulator would lower.
-            initial_state = EvolutionState(_LoweredBasisState((0,) * len(self._dims)))
-        initial = initial_state
-        quantum, start_index = initial.quantum, 0
+            # Direct callers get the same start Simulator would pass.
+            ground = None if operator else _LoweredBasisState((0,) * len(self._dims))
+            initial_state = EvolutionState(ground)
+        # Operator allocators check their own side: no initial state.
         assert (
-            quantum is not None or self.capabilities.quantum.is_operator
-        ), "state engines start from a lowered basis state or a dense array"
-        if isinstance(quantum, _LoweredBasisState):
-            quantum, start_index = None, _basis_index(quantum.levels, self._dims)
-        quantum = self._allocate(
-            prod(self._dims) if self._dims else 1, quantum, start_index
-        )
-        classical = deepcopy(initial.classical)
+            operator or initial_state.quantum is not None
+        ), "state methods start from a lowered basis state or an array"
+        quantum = self._allocate(self._dims, initial_state.quantum)
+        classical = deepcopy(initial_state.classical)
         self._evolution_state = EvolutionState(quantum, classical)
 
     def _expectation_values(
@@ -77,9 +72,6 @@ class _NdarrayEngine(MatrixEngine[np.ndarray]):
 
     @abstractmethod
     def _allocate(
-        self, size: int, initial_state: np.ndarray | None, start_index: int = 0
+        self, dims: Sequence[int], start: np.ndarray | _LoweredBasisState | None
     ) -> np.ndarray:
-        """Return a fresh owned state over ``size`` basis states.
-
-        Without ``initial_state``, it is basis state ``start_index``.
-        """
+        """Return a fresh owned state over ``dims`` from the engine's start."""

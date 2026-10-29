@@ -89,6 +89,8 @@ _GATE_CASES = [
     (ops.SubspaceRY(0.3, (0, 1)), (_QUTRIT[0],)),
     (ops.SubspaceRZ(0.3, (0, 1)), (_QUTRIT[0],)),
     (ops.CClock(1), (_QUTRIT[0], _QUTRIT[1])),
+    (ops.PhaseShifter(0.3), (_QUTRIT[0],)),
+    (ops.BeamSplitter(0.3, 0.4), (_QUTRIT[0], _QUTRIT[1])),
 ]
 
 

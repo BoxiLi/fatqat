@@ -754,6 +754,12 @@ class Simulator:
         parameter_values: Mapping[Parameter, np.ndarray] | None = None,
     ) -> _PreparedExecution:
         """Resolve and lower one program for direct or derived execution."""
+        registers = program.quantum_registers + program.classical_registers
+        if any(register.dim is None for register in registers):
+            raise BackendValidationError(
+                f"{type(self).__name__} needs fixed register dimensions; run "
+                "ModeRegister and CountRegister programs on LOSimulator"
+            )
         simulation = _normalize_config(
             simulation_config,
             self._simulation_config_cls,

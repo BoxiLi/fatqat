@@ -99,6 +99,26 @@ class BasisState:
         object.__setattr__(self, "levels", levels)
 
 
+class _LoweredBasisState(NamedTuple):
+    """A `BasisState` lowered to engine subsystems, for engine initialization.
+
+    ``Simulator`` creates it from a `BasisState`: each reference resolves
+    through the run's engine allocation, as gate targets do, so
+    ``levels[i]`` is the level of engine subsystem ``i`` and engines never
+    see references. It replaces the `BasisState` in
+    ``EvolutionState.quantum``, the channel every execution path already
+    carries to the engine, so no run signature changes.
+
+    The engine builds the state from it in its own storage layout and array
+    type, without an O(D) template: NumPy and Numba engines turn the levels
+    into their flat index, and another array library or a non-dense engine
+    can place them its own way. A plain tuple of levels would be
+    indistinguishable from a dense ket, hence a distinct type.
+    """
+
+    levels: tuple[int, ...]
+
+
 @dataclass(slots=True)
 class EvolutionState(Generic[QuantumDataT]):
     """Quantum and classical data for one simulation shot.

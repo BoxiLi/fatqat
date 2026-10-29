@@ -10,7 +10,6 @@ from collections.abc import Iterator, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
 from itertools import batched, chain
-from math import prod
 from typing import Any
 
 import numpy as np
@@ -63,7 +62,7 @@ from .._backends.backend_utils import (
     _validate_result_shots,
 )
 from . import planning
-from ._engine.state import BasisState, EvolutionState
+from ._engine.state import BasisState, EvolutionState, _LoweredBasisState
 from ._execution_contract import (
     _RunContext,
     _PlanFacts,
@@ -782,11 +781,17 @@ class Simulator:
         engine_allocation = self._allocate_engine_indices(program, resource_layout)
         classical_allocation = _ClassicalAllocation.from_program(program)
         initial_state = self._prepare_initial_state(initial_state)
-        if isinstance(initial_state.quantum, BasisState):
-            # pylint: disable-next=fixme
-            # TODO: let the engine build the ket in its own array type (NumPy,
-            # JAX, CuPy); a NumPy array works for every engine for now.
-            initial_state.quantum = _basis_state_ket(initial_state.quantum, program)
+        quantum = initial_state.quantum
+        # Engines get the ground state in the same form as any basis state;
+        # operator methods have no initial state at all.
+        if quantum is None and not self._engine.capabilities.quantum.is_operator:
+            quantum = BasisState({})
+        if isinstance(quantum, BasisState):
+            # Refs resolve to engine subsystems like gate targets; the engine
+            # builds the state in its own layout and array type.
+            initial_state.quantum = _lower_basis_state(
+                quantum, program, resource_layout, engine_allocation
+            )
         self._validate_initial_state(
             initial_state,
             tuple(reversed(engine_allocation.system_dims)),
@@ -1264,7 +1269,7 @@ class Simulator:
                     "initial occupancy contains an invalid subsystem index"
                 )
         quantum = initial_state.quantum
-        if quantum is None:
+        if quantum is None or isinstance(quantum, _LoweredBasisState):
             return
         shape = getattr(quantum, "shape", None)
         if shape is None:
@@ -1702,26 +1707,31 @@ class Simulator:
         return tuple(dict.fromkeys(rejection_reasons))
 
 
-def _basis_state_ket(basis: BasisState, program: Program) -> np.ndarray:
-    """Build the dense ket for a basis state in public basis order."""
-    refs = [
+def _lower_basis_state(
+    basis: BasisState,
+    program: Program,
+    resource_layout: ResourceLayout,
+    engine_allocation: _EngineAllocation,
+) -> _LoweredBasisState:
+    """Lower a basis state to one level per engine subsystem."""
+    refs = {
         register[index]
         for register in program.quantum_registers
         for index in range(register.size)
-    ]
-    unknown = set(basis.levels) - set(refs)
+    }
+    unknown = set(basis.levels) - refs
     if unknown:
         raise BackendValidationError(
             f"BasisState names {sorted(map(str, unknown))}, which are not "
             "quantum references of this program"
         )
-    dims = tuple(ref.register.dim for ref in refs)
-    levels = tuple(basis.levels.get(ref, 0) for ref in refs)
-    for ref, level, dim in zip(refs, levels, dims, strict=True):
+    levels = [0] * engine_allocation.n_subsystems
+    for ref, level in basis.levels.items():
+        index = engine_allocation.engine_index(resource_layout.device_label(ref))
+        dim = engine_allocation.system_dims[index]
         if level >= dim:
             raise BackendValidationError(
                 f"BasisState level {level} on {ref} is outside its dimension {dim}"
             )
-    ket = np.zeros(prod(dims), dtype=complex)
-    ket[np.ravel_multi_index(levels, dims)] = 1.0
-    return ket
+        levels[index] = level
+    return _LoweredBasisState(tuple(levels))

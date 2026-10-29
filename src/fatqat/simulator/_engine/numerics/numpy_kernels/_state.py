@@ -8,18 +8,30 @@ from math import prod
 import numpy as np
 
 
-def _allocate_statevector(size: int, initial_state: np.ndarray | None) -> np.ndarray:
-    """Return an owned ket, copied from input or in the computational zero state."""
+def _basis_index(levels: Sequence[int], dims: Sequence[int]) -> int:
+    """Return the flat index of engine-order levels; subsystem 0 varies fastest."""
+    index = 0
+    for level, dim in zip(reversed(levels), reversed(dims), strict=True):
+        index = index * dim + level
+    return index
+
+
+def _allocate_statevector(
+    size: int, initial_state: np.ndarray | None, start_index: int = 0
+) -> np.ndarray:
+    """Return an owned ket, copied from input or built as basis state ``start_index``."""
     if initial_state is not None:
         # Copy: each shot evolves its own buffer, and the caller's array
         # must survive the run unchanged.
         return np.array(initial_state, dtype=complex).reshape(size)
     state = np.zeros(size, dtype=complex)
-    state[0] = 1.0
+    state[start_index] = 1.0
     return state
 
 
-def _allocate_density_matrix(size: int, initial_state: np.ndarray | None) -> np.ndarray:
+def _allocate_density_matrix(
+    size: int, initial_state: np.ndarray | None, start_index: int = 0
+) -> np.ndarray:
     """Return an owned density matrix, accepting a ket as a pure state."""
     given = initial_state
     if given is not None:
@@ -31,19 +43,27 @@ def _allocate_density_matrix(size: int, initial_state: np.ndarray | None) -> np.
             return np.outer(given, given.conj())
         return np.array(given, dtype=complex)
     state = np.zeros((size, size), dtype=complex)
-    state[0, 0] = 1.0
+    state[start_index, start_index] = 1.0
     return state
 
 
-def _allocate_unitary(size: int, initial_state: np.ndarray | None) -> np.ndarray:
+def _allocate_unitary(
+    size: int, initial_state: np.ndarray | None, start_index: int = 0
+) -> np.ndarray:
     """Return the identity map over statevector columns."""
-    assert initial_state is None, "operator execution has no initial state"
+    assert (
+        initial_state is None and start_index == 0
+    ), "operator execution has no initial state"
     return np.eye(size, dtype=complex)
 
 
-def _allocate_superoperator(size: int, initial_state: np.ndarray | None) -> np.ndarray:
+def _allocate_superoperator(
+    size: int, initial_state: np.ndarray | None, start_index: int = 0
+) -> np.ndarray:
     """Return the identity map over density-matrix columns."""
-    assert initial_state is None, "operator execution has no initial state"
+    assert (
+        initial_state is None and start_index == 0
+    ), "operator execution has no initial state"
     return np.eye(size * size, dtype=complex)
 
 

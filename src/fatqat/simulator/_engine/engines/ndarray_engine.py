@@ -15,7 +15,8 @@ import numpy as np
 
 from ...._expectation import expectation_density_matrix, expectation_statevector
 from .._execution_policy import _ExecutionPolicy as ExecutionPolicy
-from ..state import EvolutionState
+from ..numerics.numpy_kernels._state import _basis_index
+from ..state import EvolutionState, _LoweredBasisState
 from .base import MatrixEngine
 
 
@@ -30,8 +31,19 @@ class _NdarrayEngine(MatrixEngine[np.ndarray]):
         initial_state: EvolutionState[np.ndarray] | None = None,
     ) -> None:
         self.configure_system(system_dims, n_clbits)
-        initial = initial_state if initial_state is not None else EvolutionState()
-        quantum = self._allocate(prod(self._dims) if self._dims else 1, initial.quantum)
+        if initial_state is None:
+            # Direct callers get the same ground state Simulator would lower.
+            initial_state = EvolutionState(_LoweredBasisState((0,) * len(self._dims)))
+        initial = initial_state
+        quantum, start_index = initial.quantum, 0
+        assert (
+            quantum is not None or self.capabilities.quantum.is_operator
+        ), "state engines start from a lowered basis state or a dense array"
+        if isinstance(quantum, _LoweredBasisState):
+            quantum, start_index = None, _basis_index(quantum.levels, self._dims)
+        quantum = self._allocate(
+            prod(self._dims) if self._dims else 1, quantum, start_index
+        )
         classical = deepcopy(initial.classical)
         self._evolution_state = EvolutionState(quantum, classical)
 
@@ -64,5 +76,10 @@ class _NdarrayEngine(MatrixEngine[np.ndarray]):
         return tuple(values)
 
     @abstractmethod
-    def _allocate(self, size: int, initial_state: np.ndarray | None) -> np.ndarray:
-        """Return a fresh owned state over ``size`` basis states."""
+    def _allocate(
+        self, size: int, initial_state: np.ndarray | None, start_index: int = 0
+    ) -> np.ndarray:
+        """Return a fresh owned state over ``size`` basis states.
+
+        Without ``initial_state``, it is basis state ``start_index``.
+        """

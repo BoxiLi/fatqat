@@ -142,15 +142,17 @@ def test_qudit_registers_are_supported():
 # --- a basis state names levels instead of an array --------------------
 
 
+@pytest.mark.parametrize("runtime", _RUNTIMES)
 @pytest.mark.parametrize("method", ["SV", "DM"])
 @pytest.mark.parametrize("wrap", [False, True], ids=["bare", "evolution_state"])
-def test_basis_state_starts_the_run_like_its_dense_ket(method, wrap):
+def test_basis_state_starts_the_run_like_its_dense_ket(runtime, method, wrap):
+    # Each engine builds the basis state itself, so every runtime is checked.
     program = _cx_program()
     qubits = program.quantum_registers[0]
     basis = BasisState({qubits[0]: 1})  # |10>, qubit 1 left at 0
 
     def final(initial_state):
-        result = Simulator(method=method).run(
+        result = Simulator(method=method, runtime=runtime).run(
             program, shots=0, initial_state=initial_state, result_config=_STATE_ONLY
         )
         if method == "SV":
@@ -323,7 +325,10 @@ def test_operator_methods_reject_an_initial_state(method):
     ("runtime", "shot_parallelism"),
     [("numpy", "serial"), ("numba", "serial"), ("numba", "threads")],
 )
-def test_every_shot_of_a_dynamic_run_starts_from_the_state(runtime, shot_parallelism):
+@pytest.mark.parametrize("basis", [False, True], ids=["dense", "basis_state"])
+def test_every_shot_of_a_dynamic_run_starts_from_the_state(
+    runtime, shot_parallelism, basis
+):
     # Per-shot replay re-initializes between shots. If the state were applied
     # once rather than held, only the first shot would start from it and the
     # counts would quietly be a mixture of two different experiments.
@@ -334,14 +339,17 @@ def test_every_shot_of_a_dynamic_run_starts_from_the_state(runtime, shot_paralle
     # a wrong answer, not an error.
     if runtime == "numba":
         pytest.importorskip("numba")
+    program = _dynamic_program()
     start = np.array([0, 1, 0, 0], dtype=complex)
     untouched = start.copy()
     counts = (
         Simulator(method="SV", runtime=runtime)
         .run(
-            _dynamic_program(),
+            program,
             shots=400,
-            initial_state=start,
+            initial_state=(
+                BasisState({program.quantum_registers[0][1]: 1}) if basis else start
+            ),
             simulation_config={
                 "seed": 7,
                 "shot_parallelism": shot_parallelism,

@@ -10,7 +10,11 @@ from typing import Any, Mapping
 import numpy as np
 
 from .._backends.backend_utils import _normalize_config
-from ..errors import BackendValidationError
+from .._backends.steps import CustomOperationStep
+from ..errors import BackendValidationError, UnsupportedOperationError
+from ..implementation import MatrixImplementationMap
+from ..noise import NoiseModel
+from ..observable import Observable
 from ..operations import Measurement
 from ..parameters import Parameter
 from ..program import Program
@@ -21,10 +25,12 @@ from ..registers import (
     RegisterRef,
     RegisterView,
 )
+from ..job import Job
 from ..resource_layout import ResourceLayout
+from ..result import Result
 from ._engine.state import BasisState, EvolutionState
-from ._execution_contract import _SimulationConfig
-from .simulator import Simulator, _PreparedExecution
+from ._execution_contract import RawResult, _SimulationConfig
+from .simulator import _METHOD_SPECS, Simulator, _MethodSpec, _PreparedExecution
 
 __all__ = ["LOSimulator"]
 
@@ -75,6 +81,20 @@ class LOSimulator(Simulator):
     Noise selectors that name a `fatqat.ModeRegister` reference are not
     supported; select those modes by device label instead.
 
+    Method ``"fixed_photon_state"`` uses that passive gates keep the total photon
+    number ``N`` of the starting `BasisState`: it stores one amplitude per
+    occupation summing to ``N``, ``C(M + N - 1, N)`` for ``M`` modes instead
+    of ``(cutoff + 1)**M``, so it reaches systems a statevector cannot hold.
+    The inferred cutoff ``N`` makes it exact. It returns that state with
+    ``Result.get_fixed_photon_state()``, never expanded, and
+    ``metadata["occupations"]``: a read-only ``(D, M)`` array whose row ``i``
+    is the occupation of amplitude ``i``, columns in ``metadata["state_axes"]``
+    order. Rows ascend like the statevector basis, so the amplitudes equal the
+    statevector's entries for those occupations. Measurement, feedforward,
+    counts and ``run_sweep`` work as usual. It rejects dense initial states,
+    gates that change the photon number, reset, channel noise, custom
+    operations and expectations, and runs on NumPy only.
+
     Examples:
         Two photons meeting on a balanced beam splitter leave together
         (Hong-Ou-Mandel interference):
@@ -100,6 +120,40 @@ class LOSimulator(Simulator):
     """
 
     _simulation_config_cls = _LOSimulationConfig
+    _method_specs = {
+        **_METHOD_SPECS,
+        "fixed_photon_state": _MethodSpec(
+            numpy_engine_name="NumpyFixedPhotonEngine", numba_engine_name=None
+        ),
+    }
+
+    def __init__(
+        self,
+        method: str = "statevector",
+        *,
+        runtime: str | None = None,
+        implementation_map: MatrixImplementationMap | None = None,
+        noise: NoiseModel | None = None,
+    ) -> None:
+        """Create a linear-optics simulator.
+
+        Args:
+            method: Every `Simulator` method, or ``"fixed_photon_state"``.
+            runtime: As for `Simulator`. ``None`` selects ``"numba"``, or
+                ``"numpy"`` for ``"fixed_photon_state"``, which has no Numba engine
+                yet.
+            implementation_map: As for `Simulator`.
+            noise: As for `Simulator`.
+
+        Raises:
+            BackendValidationError: As for `Simulator`.
+        """
+        if runtime is None:
+            fixed = str(method).lower() == "fixed_photon_state"
+            runtime = "numpy" if fixed else "numba"
+        super().__init__(
+            method, runtime=runtime, implementation_map=implementation_map, noise=noise
+        )
 
     def _prepare_execution(
         self,
@@ -111,6 +165,20 @@ class LOSimulator(Simulator):
         parameter_values: Mapping[Parameter, np.ndarray] | None = None,
     ) -> _PreparedExecution:
         """Resolve mode dimensions, then prepare the run like `Simulator`."""
+        quantum = (
+            initial_state.quantum
+            if isinstance(initial_state, EvolutionState)
+            else initial_state
+        )
+        if self._state_field == "fixed_photon_state" and not (
+            quantum is None or isinstance(quantum, BasisState)
+        ):
+            # The photon number picks the stored sector, and only a basis
+            # state gives it without scanning a dense array.
+            raise BackendValidationError(
+                "method='fixed_photon_state' starts from a BasisState or the ground "
+                "state, not a dense initial_state"
+            )
         registers = program.quantum_registers + program.classical_registers
         refs: dict[RegisterRef, RegisterRef] = {}
         if any(register.dim is None for register in registers):
@@ -119,11 +187,6 @@ class LOSimulator(Simulator):
                 self._simulation_config_cls,
                 "simulation_config",
                 backend_name=type(self).__name__,
-            )
-            quantum = (
-                initial_state.quantum
-                if isinstance(initial_state, EvolutionState)
-                else initial_state
             )
             cutoff = simulation.cutoff
             if cutoff is None:
@@ -181,6 +244,52 @@ class LOSimulator(Simulator):
         return replace(
             prepared, lowering=replace(prepared.lowering, resource_layout=restored)
         )
+
+    def _validate_engine_support(self, execution: _PreparedExecution) -> None:
+        """Also reject custom operations, which expect a dense state."""
+        super()._validate_engine_support(execution)
+        if self._state_field == "fixed_photon_state" and any(
+            isinstance(step, CustomOperationStep) for step in execution.plan
+        ):
+            raise UnsupportedOperationError(
+                "custom operations are not supported by method='fixed_photon_state'"
+            )
+
+    def _run_expectation(
+        self,
+        program: Program,
+        observables: tuple[Observable, ...],
+        *,
+        shots: int,
+        simulation_config: dict[str, Any] | None,
+        parameter_values: Mapping[Parameter, np.ndarray] | None = None,
+    ) -> Job:
+        """Run an expectation like `Simulator`; fixed photon has none yet."""
+        if self._state_field == "fixed_photon_state":
+            raise UnsupportedOperationError(
+                "method='fixed_photon_state' does not support expectations yet"
+            )
+        return super()._run_expectation(
+            program,
+            observables,
+            shots=shots,
+            simulation_config=simulation_config,
+            parameter_values=parameter_values,
+        )
+
+    def _assemble_result(self, *, raw: RawResult, **kwargs: Any) -> Result:
+        """Split a fixed-photon state into amplitudes and occupation metadata."""
+        sector = raw.state if self._state_field == "fixed_photon_state" else None
+        if sector is None:
+            return super()._assemble_result(raw=raw, **kwargs)
+        result = super()._assemble_result(
+            raw=replace(raw, state=sector.amplitudes), **kwargs
+        )
+        # Engine columns reversed: `state_axes` lists public order.
+        occupations = np.ascontiguousarray(sector.basis.occupations[:, ::-1])
+        occupations.flags.writeable = False
+        result.metadata["occupations"] = occupations
+        return result
 
     def _reject_mode_noise_selectors(self, program: Program) -> None:
         """Reject noise that names a mode ref, which per-run sizing replaces.

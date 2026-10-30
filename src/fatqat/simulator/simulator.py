@@ -89,11 +89,12 @@ class _MethodSpec:
 
     Attributes:
         numpy_engine_name: Class name in the lazily loaded NumPy engine module.
-        numba_engine_name: Class name in the lazily loaded Numba engine module.
+        numba_engine_name: Class name in the lazily loaded Numba engine module,
+            or ``None`` when the method has no Numba engine yet.
     """
 
     numpy_engine_name: str
-    numba_engine_name: str
+    numba_engine_name: str | None
 
 
 _METHOD_SPECS: dict[str, _MethodSpec] = {
@@ -189,6 +190,10 @@ class Simulator:
     # silently ignoring it; AtomArraySimulator sets it True.
     _supports_loss: bool = False
 
+    # Methods this backend accepts. Subclasses may add methods whose engines
+    # only make sense for their programs, such as LOSimulator's fixed photon.
+    _method_specs: Mapping[str, _MethodSpec] = _METHOD_SPECS
+
     def __init__(
         self,
         method: str = "statevector",
@@ -222,12 +227,16 @@ class Simulator:
                 be imported, or the captured noise model contains a source
                 this backend cannot execute.
         """
-        normalized = _canonicalize_method(method, _METHOD_SPECS)
+        normalized = _canonicalize_method(method, self._method_specs)
         if normalized is None:
+            names = ["'statevector'/'SV'", "'density_matrix'/'DM'"] + [
+                repr(name)
+                for name in self._method_specs
+                if name not in ("statevector", "density_matrix")
+            ]
             raise BackendValidationError(
                 f"unsupported method={method!r}; expected one of "
-                "'statevector'/'SV', 'density_matrix'/'DM', 'unitary', or "
-                "'superop'"
+                f"{', '.join(names[:-1])}, or {names[-1]}"
             )
         normalized_runtime = str(runtime).lower()
         if normalized_runtime not in ("numpy", "numba"):
@@ -235,7 +244,11 @@ class Simulator:
                 f"unsupported runtime={runtime!r}; expected 'numpy' or 'numba'"
             )
         # Select implementations here; execution support belongs to the engine.
-        spec = _METHOD_SPECS[normalized]
+        spec = self._method_specs[normalized]
+        if normalized_runtime == "numba" and spec.numba_engine_name is None:
+            raise BackendValidationError(
+                f"method={normalized!r} supports only runtime='numpy' for now"
+            )
         if normalized_runtime == "numba":
             try:
                 from ._engine.engines import numba_engine as engine_module

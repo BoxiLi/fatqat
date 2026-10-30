@@ -82,7 +82,9 @@ def test_beam_splitter_matches_qubit_rotation_on_dual_rail(splitter, qubit_gate)
     np.testing.assert_allclose(block, expected, rtol=0, atol=1e-12)
 
 
-@pytest.mark.parametrize("method", ["statevector", "density_matrix"])
+@pytest.mark.parametrize(
+    "method", ["statevector", "density_matrix", "fixed_photon_state"]
+)
 def test_hong_ou_mandel_photons_leave_together(method):
     modes = fq.ModeRegister(2)
     counts = fq.CountRegister(2)

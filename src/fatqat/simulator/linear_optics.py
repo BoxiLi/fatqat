@@ -12,8 +12,6 @@ import numpy as np
 from .._backends.backend_utils import _normalize_config
 from .._backends.steps import CustomOperationStep
 from ..errors import BackendValidationError, UnsupportedOperationError
-from ..implementation import MatrixImplementationMap
-from ..noise import NoiseModel
 from ..observable import Observable
 from ..operations import Measurement
 from ..parameters import Parameter
@@ -28,11 +26,17 @@ from ..registers import (
 from ..job import Job
 from ..resource_layout import ResourceLayout
 from ..result import Result
+from ._engine.numerics.numpy_kernels._fixed_photon import (
+    _fixed_photon_sector,
+    _rank,
+    _sector_counts,
+    _unrank,
+)
 from ._engine.state import BasisState, EvolutionState
 from ._execution_contract import RawResult, _SimulationConfig
 from .simulator import _METHOD_SPECS, Simulator, _MethodSpec, _PreparedExecution
 
-__all__ = ["LOSimulator"]
+__all__ = ["LOSimulator", "fixed_photon_index", "fixed_photon_occupation"]
 
 _CUTOFF_ERROR = "cutoff must be None or a positive int"
 
@@ -81,19 +85,21 @@ class LOSimulator(Simulator):
     Noise selectors that name a `fatqat.ModeRegister` reference are not
     supported; select those modes by device label instead.
 
-    Method ``"fixed_photon_state"`` uses that passive gates keep the total photon
-    number ``N`` of the starting `BasisState`: it stores one amplitude per
-    occupation summing to ``N``, ``C(M + N - 1, N)`` for ``M`` modes instead
-    of ``(cutoff + 1)**M``, so it reaches systems a statevector cannot hold.
-    The inferred cutoff ``N`` makes it exact. It returns that state with
-    ``Result.get_fixed_photon_state()``, never expanded, and
-    ``metadata["occupations"]``: a read-only ``(D, M)`` array whose row ``i``
-    is the occupation of amplitude ``i``, columns in ``metadata["state_axes"]``
-    order. Rows ascend like the statevector basis, so the amplitudes equal the
-    statevector's entries for those occupations. Measurement, feedforward,
-    counts and ``run_sweep`` work as usual. It rejects dense initial states,
-    gates that change the photon number, reset, channel noise, custom
-    operations and expectations, and runs on NumPy only.
+    Method ``"fixed_photon_state"`` uses that passive gates keep the total
+    photon number ``N`` of the starting `BasisState`: it stores one amplitude
+    per occupation summing to ``N``, ``C(M + N - 1, N)`` for ``M`` modes
+    instead of ``(cutoff + 1)**M``, so it reaches systems a statevector cannot
+    hold. Every quantum register must be a `fatqat.ModeRegister`, and the
+    cutoff is at least ``N``, so the method is exact. It returns that state
+    with ``Result.get_fixed_photon_state()``, never expanded, and
+    ``metadata["num_photons"]``. Rows ascend like the statevector basis: by
+    occupation, in ``metadata["state_axes"]`` order, lexicographically. So
+    the amplitudes equal the statevector's entries for those occupations.
+    `fixed_photon_index` and `fixed_photon_occupation` convert between rows
+    and occupations without storing a table. Measurement, feedforward, counts
+    and ``run_sweep`` work as usual. It rejects dense initial states, gates
+    that change the photon number, reset, channel noise, custom operations
+    and expectations.
 
     Examples:
         Two photons meeting on a balanced beam splitter leave together
@@ -123,37 +129,10 @@ class LOSimulator(Simulator):
     _method_specs = {
         **_METHOD_SPECS,
         "fixed_photon_state": _MethodSpec(
-            numpy_engine_name="NumpyFixedPhotonEngine", numba_engine_name=None
+            numpy_engine_name="NumpyFixedPhotonEngine",
+            numba_engine_name="NumbaFixedPhotonEngine",
         ),
     }
-
-    def __init__(
-        self,
-        method: str = "statevector",
-        *,
-        runtime: str | None = None,
-        implementation_map: MatrixImplementationMap | None = None,
-        noise: NoiseModel | None = None,
-    ) -> None:
-        """Create a linear-optics simulator.
-
-        Args:
-            method: Every `Simulator` method, or ``"fixed_photon_state"``.
-            runtime: As for `Simulator`. ``None`` selects ``"numba"``, or
-                ``"numpy"`` for ``"fixed_photon_state"``, which has no Numba engine
-                yet.
-            implementation_map: As for `Simulator`.
-            noise: As for `Simulator`.
-
-        Raises:
-            BackendValidationError: As for `Simulator`.
-        """
-        if runtime is None:
-            fixed = str(method).lower() == "fixed_photon_state"
-            runtime = "numpy" if fixed else "numba"
-        super().__init__(
-            method, runtime=runtime, implementation_map=implementation_map, noise=noise
-        )
 
     def _prepare_execution(
         self,
@@ -170,15 +149,9 @@ class LOSimulator(Simulator):
             if isinstance(initial_state, EvolutionState)
             else initial_state
         )
-        if self._state_field == "fixed_photon_state" and not (
-            quantum is None or isinstance(quantum, BasisState)
-        ):
-            # The photon number picks the stored sector, and only a basis
-            # state gives it without scanning a dense array.
-            raise BackendValidationError(
-                "method='fixed_photon_state' starts from a BasisState or the ground "
-                "state, not a dense initial_state"
-            )
+        fixed = self._state_field == "fixed_photon_state"
+        if fixed:
+            _check_fixed_photon_program(program, quantum)
         registers = program.quantum_registers + program.classical_registers
         refs: dict[RegisterRef, RegisterRef] = {}
         if any(register.dim is None for register in registers):
@@ -191,6 +164,12 @@ class LOSimulator(Simulator):
             cutoff = simulation.cutoff
             if cutoff is None:
                 cutoff = _infer_cutoff(program, quantum)
+            elif fixed and quantum is not None and cutoff < _mode_photons(quantum):
+                # The sector's row arithmetic lets any mode hold every photon.
+                raise BackendValidationError(
+                    "method='fixed_photon_state' needs a cutoff of at least the "
+                    f"{_mode_photons(quantum)} photons in initial_state, got {cutoff}"
+                )
             elif isinstance(quantum, BasisState):
                 # Only a basis state gives the photon number directly; dense
                 # arrays are not inspected (they may not be NumPy arrays).
@@ -278,17 +257,15 @@ class LOSimulator(Simulator):
         )
 
     def _assemble_result(self, *, raw: RawResult, **kwargs: Any) -> Result:
-        """Split a fixed-photon state into amplitudes and occupation metadata."""
-        sector = raw.state if self._state_field == "fixed_photon_state" else None
-        if sector is None:
+        """Split a fixed-photon state into amplitudes and its photon number."""
+        state = raw.state if self._state_field == "fixed_photon_state" else None
+        if state is None:
             return super()._assemble_result(raw=raw, **kwargs)
         result = super()._assemble_result(
-            raw=replace(raw, state=sector.amplitudes), **kwargs
+            raw=replace(raw, state=state.amplitudes), **kwargs
         )
-        # Engine columns reversed: `state_axes` lists public order.
-        occupations = np.ascontiguousarray(sector.basis.occupations[:, ::-1])
-        occupations.flags.writeable = False
-        result.metadata["occupations"] = occupations
+        # With `state_axes`, the photon number fixes every row's occupation.
+        result.metadata["num_photons"] = state.sector.photons
         return result
 
     def _reject_mode_noise_selectors(self, program: Program) -> None:
@@ -321,6 +298,118 @@ class LOSimulator(Simulator):
                     "LOSimulator does not support noise selectors that name a "
                     "ModeRegister reference; select modes by device label"
                 )
+
+
+def fixed_photon_index(occupation: Any) -> int | np.ndarray:
+    """Return the row of an occupation in a ``"fixed_photon_state"`` result.
+
+    Rows list every occupation with one total photon number lexicographically,
+    the order of `LOSimulator`'s ``"fixed_photon_state"`` amplitudes. The row
+    is computed from binomial counts; no table of occupations is built.
+
+    Args:
+        occupation: Photon numbers per mode, in ``metadata["state_axes"]``
+            order, as non-negative integers. The total photon number is their
+            sum. An array of shape ``(..., M)`` gives one row per occupation.
+
+    Returns:
+        The row as an ``int`` for one occupation, else an ``int64`` array of
+        shape ``(...)``.
+
+    Raises:
+        ValueError: If ``occupation`` is empty or not non-negative integers.
+
+    Examples:
+        Rows of two photons in three modes start ``(0, 0, 2)``, ``(0, 1, 1)``:
+
+        >>> from fatqat.simulator import fixed_photon_index
+        >>> fixed_photon_index((0, 1, 1))
+        1
+    """
+    occupations = np.asarray(occupation)
+    if (
+        occupations.ndim == 0
+        or occupations.shape[-1] == 0
+        or not np.issubdtype(occupations.dtype, np.integer)
+        or (occupations < 0).any()
+    ):
+        raise ValueError(
+            "occupation must hold non-negative integers, one per mode, "
+            f"got {occupation!r}"
+        )
+    occupations = occupations.astype(np.int64)
+    photons = int(occupations.sum(axis=-1).max(initial=0))
+    rows = _rank(_sector_counts(occupations.shape[-1], photons), occupations)
+    return int(rows) if rows.ndim == 0 else rows
+
+
+def fixed_photon_occupation(
+    index: Any, num_modes: int, num_photons: int
+) -> tuple[int, ...] | np.ndarray:
+    """Return the occupation of a row in a ``"fixed_photon_state"`` result.
+
+    The inverse of `fixed_photon_index` for ``num_photons`` photons in
+    ``num_modes`` modes, such as ``metadata["num_photons"]`` photons in the
+    modes of ``metadata["state_axes"]``.
+
+    Args:
+        index: A row, ``0 <= index < C(num_modes + num_photons - 1,
+            num_photons)``, or an array of rows.
+        num_modes: Number of modes, at least 1.
+        num_photons: Total photon number, at least 0.
+
+    Returns:
+        The occupation as a tuple, in ``metadata["state_axes"]`` order, for
+        one row, else an ``int64`` array of shape ``index.shape + (num_modes,)``.
+
+    Raises:
+        ValueError: If an argument is out of range or not an integer.
+
+    Examples:
+        >>> from fatqat.simulator import fixed_photon_occupation
+        >>> fixed_photon_occupation(1, num_modes=3, num_photons=2)
+        (0, 1, 1)
+    """
+    for name, value, least in (
+        ("num_modes", num_modes, 1),
+        ("num_photons", num_photons, 0),
+    ):
+        if not isinstance(value, (int, np.integer)) or value < least:
+            raise ValueError(f"{name} must be an int >= {least}, got {value!r}")
+    sector = _fixed_photon_sector(int(num_modes), int(num_photons))
+    rows = np.asarray(index)
+    if (
+        not np.issubdtype(rows.dtype, np.integer)
+        or (rows < 0).any()
+        or (rows >= sector.size).any()
+    ):
+        raise ValueError(
+            f"index must be integers in [0, {sector.size}) for {num_modes} modes "
+            f"and {num_photons} photons, got {index!r}"
+        )
+    occupations = _unrank(sector, rows.reshape(-1)).reshape(*rows.shape, num_modes)
+    if rows.ndim == 0:
+        return tuple(int(level) for level in occupations)
+    return occupations
+
+
+def _check_fixed_photon_program(program: Program, quantum: Any) -> None:
+    """Reject what ``"fixed_photon_state"`` cannot store."""
+    if not (quantum is None or isinstance(quantum, BasisState)):
+        # The photon number picks the stored sector, and only a basis
+        # state gives it without scanning a dense array.
+        raise BackendValidationError(
+            "method='fixed_photon_state' starts from a BasisState or the ground "
+            "state, not a dense initial_state"
+        )
+    if not program.quantum_registers or any(
+        register.dim is not None for register in program.quantum_registers
+    ):
+        # A qubit's levels would count as photons in the sector.
+        raise BackendValidationError(
+            "method='fixed_photon_state' runs programs whose quantum registers "
+            "are all ModeRegisters"
+        )
 
 
 def _mode_photons(basis: BasisState) -> int:

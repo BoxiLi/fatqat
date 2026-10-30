@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from .fake_atom_array import AtomArraySimulator
 from .fake_superconducting import SCQubitSimulator
-from .linear_optics import LOSimulator
+from .linear_optics import LOSimulator, fixed_photon_index, fixed_photon_occupation
 from .simulator import Simulator
 from .custom_operations import ExecutionContext
 from ._engine.state import BasisState, ClassicalState, EvolutionState
@@ -19,6 +19,8 @@ from ._engine.state import BasisState, ClassicalState, EvolutionState
 __all__ = [
     "Simulator",
     "LOSimulator",
+    "fixed_photon_index",
+    "fixed_photon_occupation",
     "ExecutionContext",
     "BasisState",
     "ClassicalState",

@@ -462,11 +462,13 @@ class Result:
         """Return the produced fixed-photon state.
 
         A fixed-photon state is not a product of subsystem spaces: it holds
-        one amplitude for each occupation with the run's total photon number.
-        Row ``i`` of ``metadata["occupations"]`` is the occupation of
-        amplitude ``i``, with columns in ``metadata["state_axes"]`` order.
-        Rows ascend like the statevector basis, so the amplitudes equal a
-        statevector's entries for those occupations, in the same order.
+        one amplitude for each occupation with the run's total photon number,
+        ``metadata["num_photons"]``. Rows list the occupations, in
+        ``metadata["state_axes"]`` order, lexicographically: the statevector
+        basis order, so the amplitudes equal a statevector's entries for those
+        occupations. `fatqat.simulator.fixed_photon_index` and
+        `fatqat.simulator.fixed_photon_occupation` convert between rows and
+        occupations.
 
         Returns:
             A length-``D`` array, where ``D`` is the number of occupations.

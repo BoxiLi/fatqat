@@ -82,6 +82,7 @@ from .._execution_policy import (
     _ExecutionPolicy as ExecutionPolicy,
     _plan_python_execution,
 )
+from ....errors import UnsupportedOperationError
 from ..state import EvolutionState, _LoweredBasisState
 from .base import MatrixEngine
 from .ndarray_engine import _NdarrayEngine
@@ -118,7 +119,6 @@ from ..numerics.numpy_kernels._apply import (
     _apply_matrix_superoperator,
 )
 from ..numerics.numpy_kernels._fixed_photon import (
-    _FixedPhotonBasis,
     _FixedPhotonState,
     _allocate_fixed_photon,
     _apply_matrix_fixed_photon,
@@ -292,8 +292,6 @@ class NumpyFixedPhotonEngine(MatrixEngine[_FixedPhotonState]):
 
     def __init__(self, name: str = "numpy-fixed-photon"):
         super().__init__(name)
-        # Shots of one run share the basis and its per-target row blocks.
-        self._basis: _FixedPhotonBasis | None = None
 
     def initialize(
         self,
@@ -306,14 +304,7 @@ class NumpyFixedPhotonEngine(MatrixEngine[_FixedPhotonState]):
         if initial_state is None:
             # Direct callers get the same start Simulator would pass.
             initial_state = EvolutionState(_LoweredBasisState((0,) * len(self._dims)))
-        start = initial_state.quantum
-        basis = self._basis
-        if basis is None or (basis.dims, basis.photons) != (
-            self._dims,
-            sum(start.levels),
-        ):
-            basis = self._basis = _FixedPhotonBasis(self._dims, sum(start.levels))
-        quantum = _allocate_fixed_photon(basis, start)
+        quantum = _allocate_fixed_photon(self._dims, initial_state.quantum)
         self._evolution_state = EvolutionState(
             quantum, deepcopy(initial_state.classical)
         )
@@ -326,7 +317,9 @@ class NumpyFixedPhotonEngine(MatrixEngine[_FixedPhotonState]):
         policy: ExecutionPolicy,
     ) -> tuple[float, ...]:
         # LOSimulator rejects these requests before execution.
-        raise NotImplementedError("fixed-photon expectations are not supported yet")
+        raise UnsupportedOperationError(
+            "fixed-photon expectations are not supported yet"
+        )
 
     def _bind_kernels_to_python_workflow(
         self,

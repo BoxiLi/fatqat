@@ -89,12 +89,11 @@ class _MethodSpec:
 
     Attributes:
         numpy_engine_name: Class name in the lazily loaded NumPy engine module.
-        numba_engine_name: Class name in the lazily loaded Numba engine module,
-            or ``None`` when the method has no Numba engine yet.
+        numba_engine_name: Class name in the lazily loaded Numba engine module.
     """
 
     numpy_engine_name: str
-    numba_engine_name: str | None
+    numba_engine_name: str
 
 
 _METHOD_SPECS: dict[str, _MethodSpec] = {
@@ -245,10 +244,6 @@ class Simulator:
             )
         # Select implementations here; execution support belongs to the engine.
         spec = self._method_specs[normalized]
-        if normalized_runtime == "numba" and spec.numba_engine_name is None:
-            raise BackendValidationError(
-                f"method={normalized!r} supports only runtime='numpy' for now"
-            )
         if normalized_runtime == "numba":
             try:
                 from ._engine.engines import numba_engine as engine_module

@@ -184,15 +184,20 @@ def test_supplied_resource_layout_names_mode_refs():
     layout = fq.ResourceLayout({modes[0]: "left", modes[1]: "right"})
     options = {"initial_state": _fock(1, 1, 0), **_STATE_ONLY}
 
-    placed = LOSimulator().run(program, resource_layout=layout, **options)
+    placed = LOSimulator().run(program, resource_layout=layout, **options).result()
 
-    default = LOSimulator().run(program, **options)
+    default = LOSimulator().run(program, **options).result()
     np.testing.assert_allclose(
-        placed.result().get_statevector(),
-        default.result().get_statevector(),
-        rtol=0,
-        atol=1e-12,
+        placed.get_statevector(), default.get_statevector(), rtol=0, atol=1e-12
     )
+    # Results name the caller's mode refs, not the per-run sized copies.
+    for result in (placed, default):
+        axes = result.metadata["state_axes"]
+        assert [axis["register_ref"] for axis in axes] == [modes[0], modes[1]]
+    assert [axis["device_operand"] for axis in placed.metadata["state_axes"]] == [
+        "left",
+        "right",
+    ]
 
 
 def test_level_checks_on_modes_run_once_the_cutoff_is_known():

@@ -112,6 +112,7 @@ class LOSimulator(Simulator):
     ) -> _PreparedExecution:
         """Resolve mode dimensions, then prepare the run like `Simulator`."""
         registers = program.quantum_registers + program.classical_registers
+        refs: dict[RegisterRef, RegisterRef] = {}
         if any(register.dim is None for register in registers):
             simulation = _normalize_config(
                 simulation_config,
@@ -161,12 +162,24 @@ class LOSimulator(Simulator):
                     if isinstance(initial_state, EvolutionState)
                     else quantum
                 )
-        return super()._prepare_execution(
+        prepared = super()._prepare_execution(
             program,
             resource_layout=resource_layout,
             initial_state=initial_state,
             simulation_config=simulation_config,
             parameter_values=parameter_values,
+        )
+        if not refs:
+            return prepared
+        # Lowering is done with the copy's refs. Results (`state_axes`) and
+        # expectation binding name the caller's refs, so map the layout back.
+        originals = {copy: original for original, copy in refs.items()}
+        layout = prepared.lowering.resource_layout
+        restored = ResourceLayout(
+            {originals.get(ref, ref): layout.device_label(ref) for ref in layout.refs}
+        )
+        return replace(
+            prepared, lowering=replace(prepared.lowering, resource_layout=restored)
         )
 
     def _reject_mode_noise_selectors(self, program: Program) -> None:

@@ -1,0 +1,61 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main, "v*", "ci/docs-html-artifact-*"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, "v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Build documentation and retain HTML
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: "1"
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            docs/mkdocs/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r docs/mkdocs/requirements.txt
+          python -m pip install . -c docs/mkdocs/requirements.txt
+
+      - name: Build full documentation
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m mkdocs build --strict --clean --site-dir docs/mkdocs/site 2>&1 | tee docs-build.log
+
+      - name: Upload HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-html
+          path: docs/mkdocs/site/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-build-log
+          path: docs-build.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -369,6 +369,74 @@ def test_coset_chunking_is_bit_identical_across_chunk_counts():
     assert np.array_equal(serial, parallel)
 
 
+def _phases(rng, size):
+    return np.exp(1j * rng.uniform(0, 2 * np.pi, size))
+
+
+@pytest.mark.parametrize(
+    ("dims", "targets", "kind"),
+    [
+        ((2,) * 8, (3,), "dense"),  # shortest qubit run that takes the run walk
+        ((2,) * 8, (6, 4), "dense"),  # unordered targets, inner target between
+        ((2,) * 8, (5,), "diagonal"),
+        ((2,) * 8, (3, 6), "permutation"),
+        ((2,) * 8, (0, 5), "dense"),  # no run below target 0
+        ((2,) * 8, (3, 4, 5), "dense"),  # wider than the dense run limit
+        ((3, 3, 2, 3, 2), (2,), "dense"),  # mixed-radix run of 9
+        ((3, 3, 2, 3, 2), (4, 2), "dense"),
+        ((3, 3, 2, 3, 2), (3,), "permutation"),
+        ((2, 2, 2, 3, 3), (3, 4), "diagonal"),
+    ],
+)
+def test_contiguous_run_walk_matches_coset_walk(dims, targets, kind):
+    # The run walk must match the coset-by-coset walk exactly, including when
+    # thread chunks start or end inside a run. Targets on low subsystems and
+    # large dense gates cover the cases that keep the coset-by-coset walk.
+    from fatqat.simulator._engine.numerics.numba_kernels._layouts import (
+        _build_apply_layout,
+    )
+    from fatqat.simulator._engine.numerics.numba_kernels._apply import (
+        _apply_dense_range,
+        _apply_diagonal_range,
+        _apply_permutation_range,
+        _apply_resolved_parallel,
+        _apply_resolved_serial,
+    )
+
+    rng = np.random.default_rng(3)
+    size = int(np.prod(dims))
+    local_dim = int(np.prod([dims[t] for t in targets]))
+    state = rng.standard_normal(size) + 1j * rng.standard_normal(size)
+    if kind == "diagonal":
+        matrix = np.diag(_phases(rng, local_dim))
+    elif kind == "permutation":
+        matrix = np.eye(local_dim)[rng.permutation(local_dim)] * _phases(rng, local_dim)
+    else:
+        matrix = rng.standard_normal((local_dim,) * 2) + 1j * rng.standard_normal(
+            (local_dim,) * 2
+        )
+    matrix = np.ascontiguousarray(matrix, dtype=np.complex128)
+    columns = np.empty(local_dim, dtype=np.int64)
+    values = np.empty(local_dim, dtype=np.complex128)
+    code = int(_classify_matrix(matrix, columns, values))
+    offsets, comp_strides, comp_dims, num_cosets, _ = _build_apply_layout(dims, targets)
+    layout = (offsets, comp_strides, comp_dims)
+
+    expected = state.copy()
+    if kind == "diagonal":
+        _apply_diagonal_range(expected, values, *layout, 0, num_cosets)
+    elif kind == "permutation":
+        _apply_permutation_range(expected, columns, values, *layout, 0, num_cosets)
+    else:
+        _apply_dense_range(expected, matrix, *layout, 0, num_cosets)
+
+    args = (code, matrix, columns, values, *layout, num_cosets)
+    assert np.array_equal(_apply_resolved_serial(state.copy(), *args), expected)
+    for n_chunks in (3, 7):
+        parallel = _apply_resolved_parallel(state.copy(), *args, n_chunks)
+        assert np.array_equal(parallel, expected)
+
+
 def test_fuse_gate_channels_leaves_unfusable_pairs_untouched():
     # Only exact-adjacent, identically-targeted, unconditional pairs merge; a
     # differently-targeted or conditioned neighbor passes through by identity.

@@ -135,6 +135,161 @@ def _apply_permutation_range(
         base = _advance_base(base, comp_strides, comp_dims, counter)
 
 
+# --- contiguous-run walk (diagonal, permutation, and small dense gates) ---
+#
+# Subsystem 0 varies fastest in the flat layout. If the gate does not act on
+# any subsystem below its lowest target, consecutive cosets sit at consecutive
+# flat positions. A run of such cosets can then be applied as plain array loops:
+# the odometer advances once per run instead of once per coset, and LLVM
+# vectorizes the inner loops.
+#
+# - `_MIN_RUN_LENGTH`: shorter runs leave too little work to vectorize.
+# - `_MAX_RUN_DENSE_DIM`: a dense row costs ``D`` multiply-adds per amplitude
+#   in either walk, so for larger ``D`` the arithmetic dominates and the extra
+#   scratch traffic no longer pays off.
+# - `_RUN_TILE`: runs are split into tiles of at most this many cosets, so each
+#   tile's ``D`` scratch rows stay in L1.
+_MIN_RUN_LENGTH = 8
+_MAX_RUN_DENSE_DIM = 6
+_RUN_TILE = 256
+
+
+@njit(cache=True)
+def _contiguous_run(
+    comp_strides: np.ndarray, comp_dims: np.ndarray
+) -> tuple[int, int]:  # pragma: no cover - compiled by Numba
+    """Return how many complement subsystems form the run, and its length.
+
+    Complement subsystems are ordered by stride. The leading ones lie below
+    every target exactly as long as each stride equals the product of the
+    dimensions before it; their cosets are then consecutive flat positions.
+    """
+    run = 1
+    count = 0
+    while count < comp_strides.shape[0] and comp_strides[count] == run:
+        run *= comp_dims[count]
+        count += 1
+    return count, run
+
+
+@njit(cache=True, inline="always")
+def _apply_dense_tile(
+    state, matrix, offsets, scratch, first, width
+) -> None:  # pragma: no cover - compiled by Numba
+    """Apply a dense matrix to ``width`` consecutive cosets starting at ``first``.
+
+    Each output row is summed from zero in column order, like
+    `_apply_dense_range`, so both walks give bit-identical results.
+    """
+    local_dim = offsets.shape[0]
+    for r in range(local_dim):
+        row = scratch[r]
+        coefficient = matrix[r, 0]
+        source = first + offsets[0]
+        for j in range(width):
+            row[j] = (0.0 + 0.0j) + coefficient * state[source + j]
+        for c in range(1, local_dim):
+            coefficient = matrix[r, c]
+            source = first + offsets[c]
+            for j in range(width):
+                row[j] += coefficient * state[source + j]
+    for r in range(local_dim):
+        row = scratch[r]
+        target = first + offsets[r]
+        for j in range(width):
+            state[target + j] = row[j]
+
+
+@njit(cache=True, inline="always")
+def _apply_diagonal_tile(
+    state, diagonal, offsets, first, width
+) -> None:  # pragma: no cover - compiled by Numba
+    """Apply a diagonal matrix to ``width`` consecutive cosets."""
+    for r in range(offsets.shape[0]):
+        factor = diagonal[r]
+        target = first + offsets[r]
+        for j in range(width):
+            state[target + j] *= factor
+
+
+@njit(cache=True, inline="always")
+def _apply_permutation_tile(
+    state, columns, values, offsets, scratch, first, width
+) -> None:  # pragma: no cover - compiled by Numba
+    """Apply a phased permutation to ``width`` consecutive cosets.
+
+    The inputs are copied to ``scratch`` first, since outputs overwrite them.
+    """
+    local_dim = offsets.shape[0]
+    for c in range(local_dim):
+        row = scratch[c]
+        source = first + offsets[c]
+        for j in range(width):
+            row[j] = state[source + j]
+    for r in range(local_dim):
+        row = scratch[columns[r]]
+        factor = values[r]
+        target = first + offsets[r]
+        for j in range(width):
+            state[target + j] = factor * row[j]
+
+
+@njit(cache=True)
+def _apply_contiguous_range(
+    state,
+    code,
+    matrix,
+    columns,
+    values,
+    offsets,
+    comp_strides,
+    comp_dims,
+    run_subsystems,
+    run_length,
+    start,
+    end,
+) -> None:  # pragma: no cover - compiled by Numba
+    """Apply cosets ``[start, end)``, walking them in runs of ``run_length``.
+
+    Coset ``k`` sits ``k % run_length`` positions after the start of run
+    ``k // run_length``. The odometer only steps over the complement subsystems
+    above the run. ``start`` and ``end`` may fall inside a run, so the result
+    does not depend on how the cosets are split between threads.
+    """
+    outer_strides = comp_strides[run_subsystems:]
+    outer_dims = comp_dims[run_subsystems:]
+    counter = np.empty(outer_strides.shape[0], dtype=np.int64)
+    tile = min(run_length, _RUN_TILE)
+    scratch = np.empty(
+        (0 if code == _DIAGONAL else offsets.shape[0], tile), state.dtype
+    )
+    outer = start // run_length
+    position = start - outer * run_length
+    base = _spread_base(outer, outer_strides, outer_dims, counter)
+    remaining = end - start
+    while remaining > 0:
+        stop = min(run_length, position + remaining)
+        while position < stop:
+            width = min(tile, stop - position)
+            first = base + position
+            if code == _DIAGONAL:
+                _apply_diagonal_tile(state, values, offsets, first, width)
+            elif code == _PERMUTATION:
+                _apply_permutation_tile(
+                    state, columns, values, offsets, scratch, first, width
+                )
+            else:
+                _apply_dense_tile(state, matrix, offsets, scratch, first, width)
+            position += width
+            remaining -= width
+        if remaining > 0:
+            base = _advance_base(base, outer_strides, outer_dims, counter)
+            position = 0
+
+
+# --- coset-range dispatch ---
+
+
 @njit(cache=True, inline="always")
 def _apply_resolved_range(
     state,
@@ -155,8 +310,32 @@ def _apply_resolved_range(
     Permutation uses one source ``columns[row]`` and multiplier ``values[row]``
     per output row. CSR uses ``columns`` and ``values`` for its nonzero entries,
     with ``indptr`` delimiting rows. Non-CSR representations omit ``indptr``;
-    each kernel ignores operands it does not use.
+    each kernel ignores operands it does not use. Diagonal, permutation, and
+    small dense gates whose cosets form long enough runs use
+    `_apply_contiguous_range` instead, which gives the same amplitudes.
     """
+    if (
+        code in (_DIAGONAL, _PERMUTATION)
+        or code == _DENSE
+        and offsets.shape[0] <= _MAX_RUN_DENSE_DIM
+    ):
+        run_subsystems, run_length = _contiguous_run(comp_strides, comp_dims)
+        if run_length >= _MIN_RUN_LENGTH:
+            _apply_contiguous_range(
+                state,
+                code,
+                matrix,
+                columns,
+                values,
+                offsets,
+                comp_strides,
+                comp_dims,
+                run_subsystems,
+                run_length,
+                start,
+                end,
+            )
+            return
     if code == _SPARSE and indptr is not None:
         _apply_sparse_range(
             state, indptr, columns, values, offsets, comp_strides, comp_dims, start, end
